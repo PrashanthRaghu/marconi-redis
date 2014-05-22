@@ -1,3 +1,14 @@
+Redis Storage Backend for Marconi
+*********************************
+This project will help expand the storage backend options by adding 
+Redis to the existing backend stack. 
+Redis would help users in need of faster queuing operations by providing 
+a completely in-memory object store.
+
+:license: Apache License Version 2.0
+
+Below are setup instructions for Marconi:
+
 Marconi
 =======
 
@@ -79,6 +90,11 @@ First install additional requirements::
 And then run tests::
 
     tox -e py27
+
+Running a local Marconi server with Redis
+-----------------------------------------
+
+Section will be updated shortly.
 
 You can read more about running functional tests in separate `TESTS_README`_.
 
