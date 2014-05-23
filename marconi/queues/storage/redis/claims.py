@@ -43,6 +43,8 @@ class ClaimController(storage.Claim):
         client uuid      ->     u
     """
 
+    def _exists(self, queue, project):
+
     def _init_pipeline(self):
         self._pipeline = self._client.pipeline()
 
@@ -62,6 +64,9 @@ class ClaimController(storage.Claim):
 
         raise NotImplementedError
 
+    @utils.raises_conn_error
+    @utils.retries_on_autoreconnect
+    @utils.reset_pipeline
     def create(self, queue, metadata, project=None,
                limit=storage.DEFAULT_MESSAGES_PER_CLAIM):
         qclaims_set_id = utils.scope_messages_set(queue, project, QUEUE_CLAIMS_SUFFIX)
@@ -78,14 +83,38 @@ class ClaimController(storage.Claim):
             'e.g': now + ttl + grace
         }
 
-        # Create a pipeline to ensure atomic insert operation.
+        # Create the claim and load the metadata information.
+        pipe = self._pipeline
+        pipe.sadd(qclaims_set_id, claim_id)
+        pipe.hmset(claim_id, claim_info)
+        pipe.execute()
 
-        raise NotImplementedError
+        # Manual resetting required here.
+        pipe.reset()
+
+        messages = self.message_ctrl._active(queue, project=project,
+                                limit=limit)
+        messages_list = list(messages)
+        ids = [message['id'] for message in messages_list]
+
+        if len(ids) == 0:
+            return (None,iter([]))
+
+        message_info={
+            'c': claim_id,
+            'c.e': now
+        }
+
+        # Update the claim id and claim expiration info
+        # for all the messages.
+        for message_id in ids:
+            pipe.hmset(message_id, message_info)
+
+        pipe.execute()
+        return (claim_id, messages_list)
 
     def update(self, queue, claim_id, metadata, project=None):
-
         raise NotImplementedError
 
     def delete(self, queue, claim_id, project=None):
-
         raise NotImplementedError

@@ -54,7 +54,15 @@ class MessageController(storage.Message):
         """
         self._client = self.driver.connection
 
-    def _it(self, message_ids, filters):
+    def _active(self, queue_name, marker=None, echo=False,
+                client_uuid=None, project=None,
+                limit=None):
+        return self.list(queue_name, project=project, marker=marker,
+                         echo=echo, client_uuid=client_uuid,
+                         include_claimed=False,
+                         limit=limit)
+
+    def _it(self, message_ids, filters={}):
         # The function accepts a list of filters
         # to be filtered before the the message
         # can be included as a part of the reply.
