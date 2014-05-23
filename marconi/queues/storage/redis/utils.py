@@ -12,10 +12,10 @@
 # limitations under the License.
 
 import redis
+import functools
+import uuid
 from marconi.queues.storage import errors
 from marconi.openstack.common import log as logging
-import functools
-
 
 LOG = logging.getLogger(__name__)
 
@@ -42,6 +42,8 @@ def normalize_none_str(string_or_none):
     #Note(prashanthr_) : Try to reuse this utility. Violates DRY
     return '' if string_or_none is None else string_or_none
 
+def generate_uuid():
+    return uuid.uuid4().hex
 
 def scope_queue_name(queue=None, project=None):
     """Returns a scoped name for a queue based on project and queue.
@@ -60,6 +62,16 @@ def scope_queue_name(queue=None, project=None):
     # NOTE(kgriffs): Concatenation is faster than format, and
     # put project first since it is guaranteed to be unique.
     return normalize_none_str(project) + '_' + normalize_none_str(queue)
+
+def scope_messages_set(queue=None, project=None, message_suffix=''):
+    """
+        Returns a scoped name for the list of messages in the form
+        project-id_queue-name_suffix
+    """
+    return normalize_none_str(project) + '_' + normalize_none_str(queue) \
+           + '_'+ message_suffix
+
+
 
 def raises_conn_error(func):
     """Handles the Redis ConnectionFailure error.
@@ -138,18 +150,47 @@ def reset_pipeline(func):
 
     return wrapper
 
+def basic_message(msg, now):
+    #Note(prashanthr_): DRY.
+    oid = msg['id']
+    age = now - int(msg['c.e'])
+
+    return {
+        'id': str(oid),
+        'age': int(age),
+        'ttl': msg['t'],
+        'body': msg['b'],
+    }
+
+def msg_claimed_filter(message, now):
+    """
+        This utility verifies in the current message
+        has been claimed.
+        Used with message pagination while returning
+        claimed messages.
+    """
+    return message['c'] is not 'None' and \
+        int(message['c.e']) <= now
+
+def msg_echo_filter(message, client_uuid):
+    """
+        This utility verifies in the current message
+        has the same client_uuid.
+        Used with message pagination while returning
+        claimed messages.
+    """
+    return message['u'] is str(client_uuid)
+
+
 class QueueListCursor(object):
 
     def __init__(self, client, queues, denormalizer):
-        self.queue_iter = iter(queues)
+        self.queue_iter = queues
         self.denormalizer = denormalizer
         self.client = client
 
     def __iter__(self):
         return self
-
-    def __len__(self):
-        return len(self.queues)
 
     @raises_conn_error
     def next(self):
