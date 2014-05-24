@@ -63,6 +63,8 @@ def scope_queue_name(queue=None, project=None):
     # put project first since it is guaranteed to be unique.
     return normalize_none_str(project) + '_' + normalize_none_str(queue)
 
+scope_claim_messages = scope_queue_name
+
 def scope_messages_set(queue=None, project=None, message_suffix=''):
     """
         Returns a scoped name for the list of messages in the form
@@ -169,7 +171,7 @@ def msg_claimed_filter(message, now):
         Used with message pagination while returning
         claimed messages.
     """
-    return message['c'] is not 'None' and \
+    return message['c'] != 'None' and \
         int(message['c.e']) <= now
 
 def msg_echo_filter(message, client_uuid):

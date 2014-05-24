@@ -62,24 +62,12 @@ class MessageController(storage.Message):
                          include_claimed=False,
                          limit=limit)
 
-    def _it(self, message_ids, filters={}):
-        # The function accepts a list of filters
-        # to be filtered before the the message
-        # can be included as a part of the reply.
+    def _get_count(self, messages_set_id):
+        # Return the number of messages in a queue scoped by
+        # queue and project.
+        return self._client.zcard(messages_set_id)
 
-        client = self._client
-        now = timeutils.utcnow_ts()
 
-        for message_id in message_ids:
-            message = client.hgetall(message_id)
-            if message:
-                for filter in filters.itervalues():
-                    filter_func = filter['f']
-                    filter_val = filter['f.v']
-                    if not filter_func(message, filter_val):
-                        break
-                else:
-                    yield utils.basic_message(message, now)
 
     def _exists(self, queue, project, key):
         # Helper function which checks if a particular message_id
@@ -135,7 +123,27 @@ class MessageController(storage.Message):
             filters['echo_filter']['f'] = utils.msg_echo_filter
             filters['echo_filter']['f.v'] = client_uuid
 
-        return self._it(message_ids, filters)
+        marker = {}
+        def _it(message_ids, filters={}):
+        # The function accepts a list of filters
+        # to be filtered before the the message
+        # can be included as a part of the reply.
+            now = timeutils.utcnow_ts()
+
+            for message_id in message_ids:
+                message = client.hgetall(message_id)
+                if message:
+                    for filter in filters.itervalues():
+                        filter_func = filter['f']
+                        filter_val = filter['f.v']
+                        if filter_func(message, filter_val):
+                            break
+                    else:
+                        marker['next'] = message['k']
+                        yield utils.basic_message(message, now)
+
+        yield _it(message_ids, filters)
+        yield marker['next']
 
     @utils.raises_conn_error
     @utils.retries_on_autoreconnect
@@ -182,7 +190,7 @@ class MessageController(storage.Message):
         now = timeutils.utcnow_ts()
         now_dt = datetime.datetime.utcfromtimestamp(now)
         message_ids = []
-
+        num_messages = self._get_count(messages_set_id)
         prepared_messages = [
             {
                 'id': utils.generate_uuid(),
@@ -190,6 +198,7 @@ class MessageController(storage.Message):
                 'e': now_dt + datetime.timedelta(seconds=message['ttl']),
                 'u': client_uuid,
                 'c': None,
+                'k': num_messages + index,
                 'c.e': now,
                 'b': message['body'] if 'body' in message else {},
             }
