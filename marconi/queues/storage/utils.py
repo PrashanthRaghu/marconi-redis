@@ -123,6 +123,7 @@ def can_connect(uri):
         # the URI field. This should be sufficient to initialize a
         # storage driver.
         conf = dynamic_conf(uri, {})
+
         mgr = driver.DriverManager(driver_type,
                                    storage_type,
                                    invoke_on_load=True,

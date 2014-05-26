@@ -134,6 +134,12 @@ class ShardDoesNotExist(DoesNotExist):
     def __init__(self, shard):
         super(ShardDoesNotExist, self).__init__(shard=shard)
 
+class ShardAlreadyExists(NotPermitted):
+
+    msg_format = u'Shard {shard} already exists'
+
+    def __init__(self, shard):
+        super(ShardAlreadyExists, self).__init__(shard=shard)
 
 class NoShardFound(ExceptionBase):
 

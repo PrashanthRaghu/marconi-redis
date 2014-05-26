@@ -1,3 +1,4 @@
+# Copyright (c) 2014 Prashanth Raghu.
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -10,93 +11,110 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Redis storage controller for the queues ctlg.
 
+Serves to construct an association between a project + queue -> shard
+
+    Tracked shard ctlgs:
+    ------------------------
+    Redis id: (ctlg)
+
+    Redis Data Structure:
+    ---------------------
+    Id                                     Value
+    --------------------------------------------------
+    'project_queue_ctlg'   ->        'shard'
+"""
 from marconi.queues.storage import base
+from marconi.queues.storage.redis import utils
+from marconi.queues.storage import errors
+
+QUEUE_CATALOGUE_SUFFIX = 'catalogue'
 
 class CatalogueController(base.CatalogueBase):
 
     def __init__(self, *args, **kwargs):
         super(CatalogueController, self).__init__(*args, **kwargs)
+        self._client = self.driver.connection
+        self._pipeline = self._client.pipeline()
 
-    
+    @utils.raises_conn_error
     def list(self, project):
-        """Returns a list of queue entries from the catalogue associated with
-        this project.
+        client = self._client
+        # Get the list of all ctlg entries.
+        # NOTE(prashanthr_): Not being used from the ctlg
+        ctlg_entries = client.zrange(QUEUE_CATALOGUE_SUFFIX, 0, -1)
+        entries = []
 
-        :param project: The project to use when filtering through queue
-                        entries.
-        :type project: six.text_type
-        :returns: [{'project': ..., 'queue': ..., 'shard': ...},]
-        :rtype: [dict]
-        """
-        raise NotImplementedError
+        for ctlg_entry in ctlg_entries:
+            project, queue = utils.descope_from_catalogue(ctlg_entry)
+            shard = client.get(ctlg_entry)
+            entries.append(_normalize(project, queue, shard))
 
-    
+        return entries
+
+    @utils.raises_conn_error
     def get(self, project, queue):
-        """Returns the shard identifier for the queue registered under this
-        project.
+        ctlg_name = utils.scope_queue_catalogue(queue
+                                    , project, QUEUE_CATALOGUE_SUFFIX)
+        shard = self._client.get(ctlg_name)
+        if shard is None:
+            raise errors.QueueNotMapped(project, queue)
 
-        :param project: Namespace to search for the given queue
-        :type project: six.text_type
-        :param queue: The name of the queue to search for
-        :type queue: six.text_type
-        :returns: {'shard': ...}
-        :rtype: dict
-        :raises: QueueNotMapped
-        """
-        raise NotImplementedError
+        return {"shard":
+                    self._client.get(ctlg_name)}
 
-    
+    @utils.raises_conn_error
     def exists(self, project, queue):
-        """Determines whether the given queue exists under project.
+        ctlg_name = utils.scope_queue_catalogue(queue
+                                    , project, QUEUE_CATALOGUE_SUFFIX)
+        return self._client.zrank(QUEUE_CATALOGUE_SUFFIX, ctlg_name) is not None
 
-        :param project: Namespace to check.
-        :type project: six.text_type
-        :param queue: str - Particular queue to check for
-        :type queue: six.text_type
-        :return: True if the queue exists under this project
-        :rtype: bool
-        """
-
-    
+    @utils.raises_conn_error
+    @utils.reset_pipeline
     def insert(self, project, queue, shard):
-        """Creates a new catalogue entry, or updates it if it already existed.
+        pipe = self._pipeline
+        ctlg_name = utils.scope_queue_catalogue(queue
+                                    , project, QUEUE_CATALOGUE_SUFFIX)
+        pipe.zadd(QUEUE_CATALOGUE_SUFFIX, 1, ctlg_name)
+        pipe.set(ctlg_name, shard)
+        pipe.execute()
 
-        :param project: str - Namespace to insert the given queue into
-        :type project: six.text_type
-        :param queue: str - The name of the queue to insert
-        :type queue: six.text_type
-        :param shard: shard identifier to associate this queue with
-        :type shard: six.text_type
-        """
-        raise NotImplementedError
-
-    
+    @utils.raises_conn_error
+    @utils.reset_pipeline
     def delete(self, project, queue):
-        """Removes this entry from the catalogue.
+        pipe = self._pipeline
+        ctlg_name = utils.scope_queue_catalogue(queue,
+                                     project, QUEUE_CATALOGUE_SUFFIX)
+        pipe.zrem(QUEUE_CATALOGUE_SUFFIX, ctlg_name)
+        pipe.delete(ctlg_name)
+        pipe.execute()
 
-        :param project: The namespace to search for this queue
-        :type project: six.text_type
-        :param queue: The queue name to remove
-        :type queue: six.text_type
-        """
-        raise NotImplementedError
-
-    
+    @utils.raises_conn_error
     def update(self, project, queue, shards=None):
-        """Updates the shard identifier for this queue
+        ctlg_name = utils.scope_queue_catalogue(queue
+                                    , project, QUEUE_CATALOGUE_SUFFIX)
+        self._client.set(ctlg_name, shards)
 
-        :param project: Namespace to search
-        :type project: six.text_type
-        :param queue: The name of the queue
-        :type queue: six.text_type
-        :param shards: The name of the shard where this project/queue lives.
-        :type shards: six.text_type
-        :raises: QueueNotMapped
-        """
-        raise NotImplementedError
-
-    
+    @utils.raises_conn_error
+    @utils.reset_pipeline
     def drop_all(self):
-        """Drops all catalogue entries from storage."""
-        raise NotImplementedError
+        pipe = self._pipeline
+        # Retrieve the list of all ctlg entries.
+        # NOTE(prashanthr_): Not being used from the ctlg
+        ctlg_entries = self._client.zrange(QUEUE_CATALOGUE_SUFFIX, 0, -1)
+
+        pipe.zremrangebyscore(QUEUE_CATALOGUE_SUFFIX, 0, -1)
+
+        for ctlg_entry in ctlg_entries:
+            pipe.delete(ctlg_entry)
+
+        pipe.execute()
+
+
+def _normalize(project, queue, shard):
+    return {
+        "project": project,
+        "queue": queue,
+        "shard": shard
+    }

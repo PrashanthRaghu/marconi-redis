@@ -170,11 +170,20 @@ class MessageController(storage.Message):
     def bulk_get(self, queue, message_ids, project=None):
         # TODO: Pipeline is not used here as atomic guarentee
         # is not required.but can be used for performance.
+        client = self._client
         if not self._queue_controller.exists(queue, project):
                 raise errors.QueueDoesNotExist(queue,
                                              project)
 
-        return self._it(message_ids)
+        def _it(message_ids):
+            now = timeutils.utcnow_ts()
+
+            for message_id in message_ids:
+                message = client.hgetall(message_id)
+                if message:
+                    yield utils.basic_message(message, now)
+
+        return _it(message_ids)
 
     @utils.raises_conn_error
     @utils.retries_on_autoreconnect

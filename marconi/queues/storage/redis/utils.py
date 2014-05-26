@@ -12,6 +12,7 @@
 # limitations under the License.
 
 import redis
+import six
 import functools
 import uuid
 from marconi.queues.storage import errors
@@ -32,6 +33,14 @@ def descope_queue_name(scoped_name):
         which is of the form project-id_queue-name
     """
     return scoped_name.split('_')[1]
+
+def descope_from_catalogue(scoped_name):
+    """
+        Returns the queue name from the scoped name
+        which is of the form project-id_queue-name
+    """
+    project, queue = scoped_name.split[:1]
+    return (project, queue)
 
 def normalize_none_str(string_or_none):
     """Returns '' IFF given value is None, passthrough otherwise.
@@ -73,7 +82,7 @@ def scope_messages_set(queue=None, project=None, message_suffix=''):
     return normalize_none_str(project) + '_' + normalize_none_str(queue) \
            + '_'+ message_suffix
 
-
+scope_queue_catalogue = scope_messages_set
 
 def raises_conn_error(func):
     """Handles the Redis ConnectionFailure error.
@@ -171,8 +180,9 @@ def msg_claimed_filter(message, now):
         Used with message pagination while returning
         claimed messages.
     """
+
     return message['c'] != 'None' and \
-        int(message['c.e']) <= now
+        int(message['c.e']) >= now
 
 def msg_echo_filter(message, client_uuid):
     """
@@ -183,6 +193,16 @@ def msg_echo_filter(message, client_uuid):
     """
     return message['u'] is str(client_uuid)
 
+def get_hostport(uri):
+    """
+        This utility fetches the host and port
+        from the shard uri provided.
+        NOTE(prashanthr): Check up with
+        sanitization of input here.
+    """
+    netloc = six.moves.urllib.parse.urlparse(uri).netloc
+    host, port = netloc.split(":")
+    return (host, int(port))
 
 class QueueListCursor(object):
 

@@ -16,6 +16,7 @@ from marconi.queues import storage
 from marconi.queues.storage.redis import options
 from marconi.common import decorators
 from marconi.queues.storage.redis import controllers
+from marconi.queues.storage.redis import utils
 import redis
 
 LOG = logging.getLogger(__name__)
@@ -25,14 +26,21 @@ def _getRedisClient(conf):
     if conf.useSocketPath:
         return redis.StrictRedis(unix_socket_path=conf.sockPath)
     else:
-        return redis.StrictRedis(host=conf.host, port=conf.port, db=conf.database)
+        host, port = utils.get_hostport(conf['uri'])
+        return redis.StrictRedis(host=host, port=port, db=conf.database)
 
 class DataDriver(storage.DataDriverBase):
 
     def __init__(self, conf, cache):
         super(DataDriver, self).__init__(conf, cache)
 
-        self.conf.register_opts(options.REDIS_OPTIONS,
+        opts = options.REDIS_OPTIONS
+
+        if 'dynamic' in conf:
+            names = conf[options.REDIS_GROUP].keys()
+            opts = filter(lambda x: x.name not in names, opts)
+
+        self.conf.register_opts(opts,
                                 group=options.REDIS_GROUP)
         self.redis_conf = self.conf[options.REDIS_GROUP]
 

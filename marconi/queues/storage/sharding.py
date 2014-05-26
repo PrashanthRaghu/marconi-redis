@@ -71,7 +71,7 @@ class DataDriver(storage.DataDriverBase):
         self._shard_catalog = Catalog(conf, cache, control)
 
     def is_alive(self):
-        return all(self._shard_catalog.get_driver(shard['name']).is_alive()
+        return all(self._shard_catalog.getexecute_driver(shard['name']).is_alive()
                    for shard in
                    self._shard_catalog._shards_ctrl.list(limit=0))
 
