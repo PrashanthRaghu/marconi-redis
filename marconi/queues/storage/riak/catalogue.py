@@ -11,7 +11,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Redis storage controller for the queues ctlg.
+"""Riak storage controller for the queues ctlg.
 
 Serves to construct an association between a project + queue -> shard
 

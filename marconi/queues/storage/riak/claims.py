@@ -24,7 +24,7 @@ QUEUE_CLAIMS_SUFFIX = 'claims'
 CLAIM_MESSAGES_SUFFIX = 'messages'
 
 class ClaimController(storage.Claim):
-    """Implements claim resource operations using Redis.
+    """Implements claim resource operations using Riak.
 
     Redis Data Structures:
     ---------------------

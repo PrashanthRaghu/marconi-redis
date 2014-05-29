@@ -22,7 +22,7 @@ from collections import defaultdict
 QUEUE_MESSAGES_LIST_SUFFIX = 'messages'
 
 class MessageController(storage.Message):
-    """Implements message resource operations using Redis.
+    """Implements message resource operations using Riak.
 
     Messages are scoped by project + queue.
 

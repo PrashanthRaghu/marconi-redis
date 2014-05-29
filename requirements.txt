@@ -9,6 +9,7 @@ msgpack-python
 posix_ipc
 pymongo>=2.4
 redis
+riak
 python-keystoneclient>=0.8.0
 python-memcached>=1.48
 WebOb>=1.2.3

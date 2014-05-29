@@ -1,4 +1,3 @@
-# Copyright (c) 2014 Prashanth Raghu.
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -12,4 +11,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from marconi.queues.storage.redis import driver
+from marconi.queues.storage.redis import queues
+from marconi.queues.storage.redis import catalogue
+from marconi.queues.storage.redis import claims
+from marconi.queues.storage.redis import messages
+from marconi.queues.storage.redis import shards
+
+QueueController = queues.QueueController
+MessageController = messages.MessageController
+ClaimController = claims.ClaimController
+CatalogueController = catalogue.CatalogueController
+ShardsController = shards.ShardsController
+
