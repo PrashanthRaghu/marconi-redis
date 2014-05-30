@@ -46,113 +46,88 @@ SHARDS_SET_NAME = "shards"
 
 class ShardsController(base.ShardsBase):
 
-    def __init__(self, *args, **kwargs):
-        super(ShardsController, self).__init__(*args, **kwargs)
-        self._client = self.driver.connection
-        self._pipeline = self._client.pipeline()
-
-    @utils.raises_conn_error
     def list(self, marker=None, limit=storage.DEFAULT_SHARDS_PER_PAGE,
              detailed=False):
-        client = self._client
+        """Lists all registered shards.
 
-        # A limit of -1 is used when selecting a shard to
-        # register into the catalogue.
-        start = client.zrank(SHARDS_SET_NAME, marker) or 0
-        end = -1 if not limit else start+limit
-        shard_cursor = (q for q in client.zrange(SHARDS_SET_NAME, start, end))
+        :param marker: used to determine which shard to start with
+        :type marker: six.text_type
+        :param limit: (Default 10) Max number of results to return
+        :type limit: int
+        :param detailed: whether to include options
+        :type detailed: bool
+        :returns: A list of shards - name, weight, uri
+        :rtype: [{}]
+        """
+        raise NotImplementedError
 
-        def _it():
-            for shard_name in shard_cursor:
-                shard_info = client.hgetall(shard_name)
-                shard_info['n'] = shard_name
-                if not detailed:
-                    del shard_info['o']
-                yield _normalize(shard_info, detailed)
-
-        return _it()
-
-    @utils.raises_conn_error
-    @utils.reset_pipeline
+   
     def create(self, name, weight, uri, options=None):
-        # (Doubt):The WSGI layer does not expect any
-        # responsefrom the storage backend. Errors
-        # are not being trapped as well.
-        pipe = self._pipeline
+        """Registers a shard entry.
 
-        # NOTE(prashanthr_):Take care of this error
-        # from the transport driver.
-        if self.exists(name):
-            raise errors.ShardAlreadyExists(name)
+        :param name: The name of this shard
+        :type name: six.text_type
+        :param weight: the likelihood that this shard will be used
+        :type weight: int
+        :param uri: A URI that can be used by a storage client
+        (e.g., pymongo) to access this shard.
+        :type uri: six.text_type
+        :param options: Options used to configure this shard
+        :type options: dict
+        """
+        raise NotImplementedError
 
-        shard_info = {
-            'u': uri,
-            'w': weight,
-            'o': options
-        }
-
-        pipe.zadd(SHARDS_SET_NAME, 1, name)
-        pipe.hmset(name, shard_info)
-        pipe.execute()
-
-    @utils.raises_conn_error
+   
     def get(self, name, detailed=False):
-        if not self.exists(name):
-            raise errors.ShardDoesNotExist(name)
+        """Returns a single shard entry.
 
-        shard_info = self._client.hgetall(name)
-        shard_info['n'] = name
+        :param name: The name of this shard
+        :type name: six.text_type
+        :param detailed: Should the options data be included?
+        :type detailed: bool
+        :returns: weight, uri, and options for this shard
+        :rtype: {}
+        :raises: ShardDoesNotExist if not found
+        """
+        raise NotImplementedError
 
-        if not detailed:
-            del shard_info['o']
-        return _normalize(shard_info, detailed)
-
-    @utils.raises_conn_error
+   
     def exists(self, name):
-        return self._client.zrank(SHARDS_SET_NAME, name) is not None
+        """Returns a single shard entry.
 
-    @utils.raises_conn_error
-    @utils.reset_pipeline
+        :param name: The name of this shard
+        :type name: six.text_type
+        :returns: True if the shard exists
+        :rtype: bool
+        """
+        raise NotImplementedError
+
+   
     def delete(self, name):
-        # Note: Does not raise any errors when the shard does not
-        # exist.
-        pipe = self._pipeline
-        pipe.delete(name)
-        pipe.zrem(SHARDS_SET_NAME, name)
-        pipe.execute()
+        """Removes a shard entry.
 
-    @utils.raises_conn_error
+        :param name: The name of this shard
+        :type name: six.text_type
+        :rtype: None
+        """
+        raise NotImplementedError
+
+   
     def update(self, name, **kwargs):
-        client = self._client
-        if not self.exists(name):
-            raise errors.ShardDoesNotExist(name)
+        """Updates the weight, uris, and/or options of this shard
 
-        shard_info = client.hgetall(name)
+        :param name: Name of the shard
+        :type name: text
+        :param kwargs: one of: `uri`, `weight`, `options`
+        :type kwargs: dict
+        :raises: ShardDoesNotExist
+        """
+        raise NotImplementedError
 
-        # Override the parameters from the client.
-        shard_new_info = {
-            'u': kwargs['uri'] or shard_info['u'],
-            'w': kwargs['weight'] or shard_info['w'],
-            'o': kwargs['options'] or shard_info['o']
-        }
-
-        client.hmset(name, shard_new_info)
-
-    @utils.raises_conn_error
-    @utils.reset_pipeline
+   
     def drop_all(self):
-        # Note(prashanthr_): Not being used from the transport
-        # driver.
-        pipe = self._pipeline
-        shards = self._client.zrange(SHARDS_SET_NAME, 0, -1)
-
-        # Remove all shards from the set of shards.
-        pipe.zremrangebyscore(SHARDS_SET_NAME, 0, -1)
-        for shard in shards:
-            pipe.delete(shard)
-
-        # Delete all elements.
-        pipe.execute()
+        """Deletes all shards from storage."""
+        raise NotImplementedError
 
 def _normalize(shard, detailed=False):
     # DRY violation.

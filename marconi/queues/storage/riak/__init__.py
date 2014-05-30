@@ -12,4 +12,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from marconi.queues.storage.redis import driver
+from marconi.queues.storage.riak import driver
