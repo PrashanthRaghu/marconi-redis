@@ -11,7 +11,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import redis
+import riak
 import six
 import functools
 import uuid
@@ -62,9 +62,9 @@ def scope_queue_name(queue=None, project=None):
     specified, a scope for "all global queues" is returned, which
     is to be interpreted as excluding queues scoped by project.
 
-    :returns: '{project}_{queue}' if project and queue are given,
-        '{project}/' if ONLY project is given, '_{queue}' if ONLY
-        queue is given, and '_' if neither are given.
+    :returns: '{project}.{queue}' if project and queue are given,
+        '{project}/' if ONLY project is given, '.{queue}' if ONLY
+        queue is given, and '.' if neither are given.
     """
      #Note(prashanthr_) : Try to reuse this utility. Violates DRY
 
@@ -72,9 +72,18 @@ def scope_queue_name(queue=None, project=None):
     # put project first since it is guaranteed to be unique.
     return normalize_none_str(project) + '.' + normalize_none_str(queue)
 
-# Generate aliases for similar functionality from the claims
-# controller.
-scope_claim_messages = scope_queue_name
+def scope_queue_bucket(project=None):
+    """Returns a scoped Riak bucket name for a queue based on project.
+
+    :returns: '{project}.{queue}' if project and queue are given,
+        '{project}/' if ONLY project is given, '.{queue}' if ONLY
+        queue is given, and '.' if neither are given.
+    """
+     #Note(prashanthr_) : Try to reuse this utility. Violates DRY
+
+    # NOTE(kgriffs): Concatenation is faster than format, and
+    # put project first since it is guaranteed to be unique.
+    return normalize_none_str(project) + '.'
 
 def scope_messages_set(queue=None, project=None, message_suffix=''):
     """
@@ -102,7 +111,7 @@ def raises_conn_error(func):
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
-        except redis.exceptions.ConnectionError as ex:
+        except riak.RiakError as ex:
             LOG.exception(ex)
             raise errors.ConnectionError()
 
@@ -130,16 +139,15 @@ def retries_on_autoreconnect(func):
         # Can pass config parameters into the decorator and create a
         # storage level utility.
 
-        max_attemps = self.driver.redis_conf.max_reconnect_attempts
-        sleep_sec = self.driver.redis_conf.reconnect_sleep
+        max_attemps = self.driver.riak_conf.max_reconnect_attempts
+        sleep_sec = self.driver.riak_conf.reconnect_sleep
 
         for attempt in range(max_attemps):
             try:
-                self.init_connection()
                 return func(self, *args, **kwargs)
                 break
 
-            except redis.exceptions.ConnectionError as ex:
+            except riak.RiakError as ex:
                 LOG.warn(_(u'Caught AutoReconnect, retrying the '
                            'call to {0}').format(func))
 
@@ -152,16 +160,19 @@ def retries_on_autoreconnect(func):
 
     return wrapper
 
-def reset_pipeline(func):
+PROJECT_CACHE = {}
+
+def cache_bucket(func):
     """
-        Methods using pipeline need to reset the pipeline
-        after usage.
+    Stores the bucket for an individual project
+    in a local cache.
     """
-    @functools.wraps(func)
-    def wrapper(self, *args, **kwargs):
-        ret_val = func(self, *args, **kwargs)
-        self._pipeline.reset()
-        return ret_val
+    def wrapper(self, project):
+        p_name = scope_queue_bucket(project)
+        if p_name not in PROJECT_CACHE:
+            PROJECT_CACHE[p_name] = func(self, project)
+
+        return PROJECT_CACHE[p_name]
 
     return wrapper
 

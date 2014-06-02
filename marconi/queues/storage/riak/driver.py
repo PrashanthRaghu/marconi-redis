@@ -39,6 +39,7 @@ class DataDriver(storage.DataDriverBase):
 
         self.conf.register_opts(opts,
                                 group=options.RIAK_GROUP)
+
         self.riak_conf = self.conf[options.RIAK_GROUP]
 
     def is_alive(self):

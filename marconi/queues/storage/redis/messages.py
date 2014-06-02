@@ -175,7 +175,10 @@ class MessageController(storage.Message):
     @utils.retries_on_autoreconnect
     def first(self, queue, project=None, sort=1):
         message_id = self._get_first_message_id(queue, project, sort)
-        return self.get(queue, message_id, project)
+        if not message_id:
+            raise errors.QueueIsEmpty(queue, project)
+
+        return self.get(queue, message_id[0], project)
 
     @utils.raises_conn_error
     @utils.retries_on_autoreconnect

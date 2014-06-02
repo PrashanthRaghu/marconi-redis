@@ -161,6 +161,8 @@ class ClaimController(storage.Claim):
 
         # Update the claim id and claim expiration info
         # for all the messages.
+        self.driver.queue_controller._inc_claimed(queue, project, len(ids))
+
         for message_id in ids:
             pipe.sadd(claim_messages, message_id)
             pipe.hmset(message_id, message_info)

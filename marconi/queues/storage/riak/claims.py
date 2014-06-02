@@ -46,7 +46,7 @@ class ClaimController(storage.Claim):
         client uuid      ->     u
     """
 
-     def get(self, queue, claim_id, project=None):
+    def get(self, queue, claim_id, project=None):
         """Base method for getting a claim.
 
         :param queue: Name of the queue this

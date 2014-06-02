@@ -16,6 +16,7 @@ import six
 import functools
 import uuid
 from marconi.queues.storage import errors
+from marconi.openstack.common import timeutils
 from marconi.openstack.common import log as logging
 
 LOG = logging.getLogger(__name__)
@@ -62,9 +63,9 @@ def scope_queue_name(queue=None, project=None):
     specified, a scope for "all global queues" is returned, which
     is to be interpreted as excluding queues scoped by project.
 
-    :returns: '{project}_{queue}' if project and queue are given,
-        '{project}/' if ONLY project is given, '_{queue}' if ONLY
-        queue is given, and '_' if neither are given.
+    :returns: '{project}.{queue}' if project and queue are given,
+        '{project}/' if ONLY project is given, '.{queue}' if ONLY
+        queue is given, and '.' if neither are given.
     """
      #Note(prashanthr_) : Try to reuse this utility. Violates DRY
 
@@ -206,6 +207,18 @@ def get_hostport(uri):
     netloc = six.moves.urllib.parse.urlparse(uri).netloc
     host, port = netloc.split(":")
     return (host, int(port))
+
+def stat_message(message, now):
+    """Creates a stat document from the given message, relative to now."""
+    created = int(message['ttl'])
+    age = now - created
+
+    return {
+        'id': message['id'],
+        'age': age,
+        'created': timeutils.iso8601_from_timestamp(created)
+    }
+
 
 class QueueListCursor(object):
 

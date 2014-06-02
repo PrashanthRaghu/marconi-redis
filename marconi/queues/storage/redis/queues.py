@@ -45,6 +45,7 @@ class QueueController(storage.Queue):
         Id                     Value
         --------------------------------
         c               ->     count
+        cl              ->     num_msgs_claimed
         m               ->     metadata
 
     """
@@ -66,11 +67,25 @@ class QueueController(storage.Queue):
     def _set_counter(self, q_id, count):
         q_info = {
             'c': count,
+            'cl': self._get_queue_info(q_id , 'cl', int),
             'm': self._get_queue_info(q_id, 'm'),
             't': timeutils.utcnow_ts()
         }
         self._client.hmset(q_id, q_info)
 
+    def _inc_claimed(self, name, project, amount=1):
+        q_id = utils.scope_queue_name(name, project)
+        cl_count = self._get_queue_info(q_id, 'cl', int)
+        self._set_claim_counter(q_id, cl_count+amount)
+
+    def _set_claim_counter(self, q_id, count):
+        q_info = {
+            'c': self._get_queue_info(q_id, 'c'),
+            'cl': count,
+            'm': self._get_queue_info(q_id, 'm'),
+            't': timeutils.utcnow_ts()
+        }
+        self._client.hmset(q_id, q_info)
 
     def __init__(self, *args, **kwargs):
         super(QueueController, self).__init__(*args, **kwargs)
@@ -132,6 +147,7 @@ class QueueController(storage.Queue):
         # Pipeline ensures atomic inserts.
         q_info = {
             'c': 1,
+            'cl': 0,
             'm': {},
             't': timeutils.utcnow_ts()
         }
@@ -159,12 +175,14 @@ class QueueController(storage.Queue):
         q_id = utils.scope_queue_name(name, project)
         q_info = {
             'c': 1,
+            'cl': 0,
             'm': metadata,
             't': timeutils.utcnow_ts()
         }
 
         if self.exists(name, project):
             q_info['c'] = self._get_queue_info(q_id, 'c')
+            q_info['cl'] = self._get_queue_info(q_id, 'cl')
 
         self._client.hmset(q_id, q_info)
 
@@ -191,5 +209,32 @@ class QueueController(storage.Queue):
     @utils.raises_conn_error
     @utils.retries_on_autoreconnect
     def stats(self, name, project=None):
-        # TODO: Depends on claims controller.
-        raise NotImplementedError
+        if not self.exists(name, project=project):
+            raise errors.QueueDoesNotExist(name, project)
+
+        q_id = utils.scope_queue_name(name, project)
+        q_info = self._client.hgetall(q_id)
+
+        claimed = int(q_info['cl'])
+        total = int(q_info['c'])
+        msg_ctrl = self.driver.message_controller
+        now = timeutils.utcnow_ts()
+
+        message_stats = {
+            'claimed': claimed,
+            'free': total-claimed,
+            'total': total
+        }
+
+        try:
+            newest = msg_ctrl.first(name, project, 1)
+            oldest = msg_ctrl.first(name, project, -1)
+        except errors.QueueIsEmpty:
+            pass
+        else:
+            message_stats['newest'] = utils.stat_message(newest, now)
+            message_stats['oldest'] = utils.stat_message(oldest, now)
+
+        return {'messages': message_stats}
+
+

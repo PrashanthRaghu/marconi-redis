@@ -20,18 +20,10 @@ class MessageController(storage.Message):
 
     Messages are scoped by project + queue.
 
-    Redis Data Structures:
-    ---------------------
-    Messages list ( Redis Sorted Set ) contains message ids
-    sorted by timestamp.
+    scope: <project-id.q-name>
 
-    scope: <project-id_q-name>
+    Messages(Message_id):
 
-        Name                Field
-        -------------------------
-        message_ids           m
-
-    Messages(Redis Hash):
         Name                Field
         -------------------------
         ttl              ->     t
