@@ -17,7 +17,7 @@ from oslo.config import cfg
 
 
 REDIS_OPTIONS = (
-    cfg.StrOpt('uri', default="127.0.0.1:6379", help='Redis Server URI.'),
+    cfg.StrOpt('uri', default="redis://127.0.0.1:6379", help='Redis Server URI.'),
 
     cfg.IntOpt('database', default=0, help='Database number'),
 

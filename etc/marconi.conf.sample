@@ -185,6 +185,37 @@
 # retried. (floating point value)
 #reconnect_sleep=0.02
 
+[drivers:storage:redis]
+# Redis Connection URI
+#uri=<None>
+
+# Database number
+#database=0
+
+# Maximum number of times to retry a failed operation.
+# Currently only used for retrying a message post. (integer
+# value)
+#max_attempts=1000
+
+# Maximum sleep interval between retries (actual sleep time
+# increases linearly according to number of attempts
+# performed). (floating point value)
+#max_retry_sleep=0.1
+
+# Maximum jitter interval, to be added to the sleep interval,
+# in order to decrease probability that parallel requests will
+# retry at the same instant. (floating point value)
+#max_retry_jitter=0.005
+
+# Maximum number of times to retry an operation that failed
+# due to a primary node failover. (integer value)
+#max_reconnect_attempts=10
+
+# Base sleep interval between attempts to reconnect after a
+# primary node failover. The actual sleep time increases
+# exponentially (power of 2) each time the operation is
+# retried. (floating point value)
+#reconnect_sleep=0.02
 
 [drivers:storage:sqlalchemy]
 
