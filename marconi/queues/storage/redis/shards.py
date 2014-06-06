@@ -119,6 +119,8 @@ class ShardsController(base.ShardsBase):
         pipe = self._pipeline
         pipe.delete(name)
         pipe.zrem(SHARDS_SET_NAME, name)
+        # Drop all the corresponding catalogue entries for the shard.
+        self.driver.catalogue_controller._drop_all_fromshard(name)
         pipe.execute()
 
     @utils.raises_conn_error

@@ -75,7 +75,8 @@ def scope_queue_name(queue=None, project=None):
 
 # Generate aliases for similar functionality from the claims
 # controller.
-scope_claim_messages = scope_queue_name
+scope_shard_catalogue = scope_claim_messages = scope_queue_name
+
 
 def scope_messages_set(queue=None, project=None, message_suffix=''):
     """
@@ -88,6 +89,14 @@ def scope_messages_set(queue=None, project=None, message_suffix=''):
 # Generate aliases for similar functionality from the claims
 # and catalogue controllers.
 scope_queue_catalogue = scope_claims_set = scope_messages_set
+
+def scope_queue_catalogue_pattern(queue=None, project=None):
+    """
+        Returns a scoped name for pattern search of catalogue entries
+        in the form *.queue_name.project_id
+    """
+    return '*' + '.' + normalize_none_str(queue) \
+        + '.' + normalize_none_str(project)
 
 def raises_conn_error(func):
     """Handles the Redis ConnectionFailure error.

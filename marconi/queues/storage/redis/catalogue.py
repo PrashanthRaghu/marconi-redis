@@ -15,14 +15,19 @@
 
 Serves to construct an association between a project + queue -> shard
 
-    Tracked shard ctlgs:
+    Shards_set:
+    -----------
+    Contains a list of all shards.
+    used to drop all shards. ( Currently unused ).
+
+    Tracked shard catalogues:
     ------------------------
-    Redis id: (ctlg)
+    Redis id: (shard_id.catalogue)
 
     Redis Data Structure:
     ---------------------
     Id                                     Value
-    --------------------------------------------------
+    ----------------------------------------------
     'project_queue_ctlg'   ->             'shard'
 """
 from marconi.queues.storage import base
@@ -30,6 +35,8 @@ from marconi.queues.storage.redis import utils
 from marconi.queues.storage import errors
 
 QUEUE_CATALOGUE_SUFFIX = 'catalogue'
+QUEUE_SHARDS_LIST = 'shards_list'
+
 
 class CatalogueController(base.CatalogueBase):
 
@@ -43,6 +50,7 @@ class CatalogueController(base.CatalogueBase):
         client = self._client
         # Get the list of all ctlg entries.
         # NOTE(prashanthr_): Not being used from the ctlg
+        # TODO(prashanthr_): Do this.
         ctlg_entries = client.zrange(QUEUE_CATALOGUE_SUFFIX, 0, -1)
         entries = []
 
@@ -55,28 +63,27 @@ class CatalogueController(base.CatalogueBase):
 
     @utils.raises_conn_error
     def get(self, project, queue):
-        ctlg_name = utils.scope_queue_catalogue(queue
-                                    , project, QUEUE_CATALOGUE_SUFFIX)
-        shard = self._client.get(ctlg_name)
-        if shard is None:
+
+        if not self.exists(project, queue):
             raise errors.QueueNotMapped(project, queue)
 
-        return {"shard":
-                    self._client.get(ctlg_name)}
+        ctlg_name = utils.scope_queue_catalogue(queue, project, QUEUE_CATALOGUE_SUFFIX)
+        return {"shard": self._client.get(ctlg_name)}
 
     @utils.raises_conn_error
     def exists(self, project, queue):
-        ctlg_name = utils.scope_queue_catalogue(queue
-                                    , project, QUEUE_CATALOGUE_SUFFIX)
-        return self._client.zrank(QUEUE_CATALOGUE_SUFFIX, ctlg_name) is not None
+        ctlg_name = utils.scope_queue_catalogue(queue, project, QUEUE_CATALOGUE_SUFFIX)
+        return self._client.exists(ctlg_name)
 
     @utils.raises_conn_error
     @utils.reset_pipeline
     def insert(self, project, queue, shard):
         pipe = self._pipeline
-        ctlg_name = utils.scope_queue_catalogue(queue
-                                    , project, QUEUE_CATALOGUE_SUFFIX)
-        pipe.zadd(QUEUE_CATALOGUE_SUFFIX, 1, ctlg_name)
+        ctlg_shard_name = utils.scope_shard_catalogue(QUEUE_CATALOGUE_SUFFIX, shard)
+        ctlg_name = utils.scope_queue_catalogue(queue, project, QUEUE_CATALOGUE_SUFFIX)
+
+        pipe.sadd(QUEUE_SHARDS_LIST, shard)
+        pipe.zadd(ctlg_shard_name, 1, ctlg_name)
         pipe.set(ctlg_name, shard)
         pipe.execute()
 
@@ -84,33 +91,49 @@ class CatalogueController(base.CatalogueBase):
     @utils.reset_pipeline
     def delete(self, project, queue):
         pipe = self._pipeline
-        ctlg_name = utils.scope_queue_catalogue(queue,
-                                     project, QUEUE_CATALOGUE_SUFFIX)
-        pipe.zrem(QUEUE_CATALOGUE_SUFFIX, ctlg_name)
+        ctlg_name = utils.scope_queue_catalogue(queue, project, QUEUE_CATALOGUE_SUFFIX)
+
+        shard = self._client.get(ctlg_name)
+
+        ctlg_shard_name = utils.scope_shard_catalogue(QUEUE_CATALOGUE_SUFFIX,
+                                                      shard)
+
+        pipe.zrem(ctlg_shard_name, ctlg_name)
         pipe.delete(ctlg_name)
         pipe.execute()
 
     @utils.raises_conn_error
     def update(self, project, queue, shards=None):
-        ctlg_name = utils.scope_queue_catalogue(queue
-                                    , project, QUEUE_CATALOGUE_SUFFIX)
+        ctlg_name = utils.scope_queue_catalogue(queue, project, QUEUE_CATALOGUE_SUFFIX)
         self._client.set(ctlg_name, shards)
 
     @utils.raises_conn_error
-    @utils.reset_pipeline
     def drop_all(self):
-        pipe = self._pipeline
-        # Retrieve the list of all ctlg entries.
-        # NOTE(prashanthr_): Not being used from the ctlg
-        ctlg_entries = self._client.zrange(QUEUE_CATALOGUE_SUFFIX, 0, -1)
+        client = self._client
 
-        pipe.zremrangebyscore(QUEUE_CATALOGUE_SUFFIX, 0, -1)
+        # NOTE(prashanthr_): Not being used from the ctlg
+        shards = client.smembers(QUEUE_SHARDS_LIST)
+
+        for shard in shards:
+            self._drop_all_fromshard(shard)
+
+    @utils.raises_conn_error
+    @utils.reset_pipeline
+    def _drop_all_fromshard(self, shard):
+        # Use a new pipeline here to avoid conflict with drop_all
+        pipe = self._pipeline
+
+        # Retrieve the list of all ctlg entries for the shard.
+        ctlg_shard_name = utils.scope_shard_catalogue(QUEUE_CATALOGUE_SUFFIX,
+                                                      shard)
+
+        ctlg_entries = self._client.zrange(ctlg_shard_name, 0, -1)
+        pipe.delete(ctlg_shard_name)
 
         for ctlg_entry in ctlg_entries:
             pipe.delete(ctlg_entry)
 
         pipe.execute()
-
 
 def _normalize(project, queue, shard):
     return {
