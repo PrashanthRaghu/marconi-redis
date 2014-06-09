@@ -25,4 +25,5 @@ RUN_SLOW_TESTS = not SKIP_SLOW_TESTS
 expect = helpers.expect
 is_slow = helpers.is_slow
 requires_mongodb = helpers.requires_mongodb
+requires_redis = helpers.requires_redis
 TestBase = base.TestBase

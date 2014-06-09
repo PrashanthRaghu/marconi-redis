@@ -147,7 +147,7 @@ class ClaimController(storage.Claim):
         pipe.reset()
 
         messages = self.message_ctrl._active(queue, project=project,
-                                limit=limit)
+                                             limit=limit)
         messages_list = list(next(messages))
         ids = [message['id'] for message in messages_list]
 
@@ -214,7 +214,7 @@ class ClaimController(storage.Claim):
     @utils.reset_pipeline
     def delete(self, queue, claim_id, project=None):
         qclaims_set_id = utils.scope_claims_set(queue, project
-                                                  , QUEUE_CLAIMS_SUFFIX)
+                                                , QUEUE_CLAIMS_SUFFIX)
         pipe = self._pipeline
 
         # delete:False avoids an infinite recursive case.

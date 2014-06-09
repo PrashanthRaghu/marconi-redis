@@ -15,6 +15,7 @@ import redis
 import six
 import functools
 import uuid
+import time
 from marconi.queues.storage import errors
 from marconi.openstack.common import timeutils
 from marconi.openstack.common import log as logging
@@ -90,14 +91,6 @@ def scope_messages_set(queue=None, project=None, message_suffix=''):
 # and catalogue controllers.
 scope_queue_catalogue = scope_claims_set = scope_messages_set
 
-def scope_queue_catalogue_pattern(queue=None, project=None):
-    """
-        Returns a scoped name for pattern search of catalogue entries
-        in the form *.queue_name.project_id
-    """
-    return '*' + '.' + normalize_none_str(queue) \
-        + '.' + normalize_none_str(project)
-
 def raises_conn_error(func):
     """Handles the Redis ConnectionFailure error.
 
@@ -145,17 +138,16 @@ def retries_on_autoreconnect(func):
 
         for attempt in range(max_attemps):
             try:
-                self.init_connection()
                 return func(self, *args, **kwargs)
                 break
 
             except redis.exceptions.ConnectionError as ex:
-                LOG.warn(_(u'Caught AutoReconnect, retrying the '
+                LOG.warn((u'Caught AutoReconnect, retrying the '
                            'call to {0}').format(func))
 
                 time.sleep(sleep_sec * (2 ** attempt))
         else:
-            LOG.error(_(u'Caught AutoReconnect, maximum attempts '
+            LOG.error((u'Caught AutoReconnect, maximum attempts '
                         'to {0} exceeded.').format(func))
 
             raise ex

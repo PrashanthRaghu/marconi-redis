@@ -12,15 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import six
+import collections
 import datetime
-from marconi.queues import storage
-from marconi.queues.storage.redis import utils
+
 from marconi.openstack.common import timeutils
+from marconi.queues import storage
 from marconi.queues.storage import errors
-from collections import defaultdict
+from marconi.queues.storage.redis import utils
+import six
 
 QUEUE_MESSAGES_LIST_SUFFIX = 'messages'
+
 
 class MessageController(storage.Message):
     """Implements message resource operations using Redis.
@@ -51,8 +53,7 @@ class MessageController(storage.Message):
         self._pipeline = self._client.pipeline()
 
     def init_connection(self):
-        """
-            Will be used during reconnection attempts.
+        """Will be used during reconnection attempts.
         """
         self._client = self.driver.connection
 
@@ -79,7 +80,7 @@ class MessageController(storage.Message):
         client = self._client
         pipe = self._pipeline
         messages_set_id = utils.scope_messages_set(queue, project,
-                                        QUEUE_MESSAGES_LIST_SUFFIX)
+                                                   QUEUE_MESSAGES_LIST_SUFFIX)
         message_ids = client.zrange(messages_set_id, 0, -1)
 
         pipe.delete(messages_set_id)
@@ -88,14 +89,13 @@ class MessageController(storage.Message):
 
         pipe.execute()
 
-
     def _exists(self, queue, project, key):
         # Helper function which checks if a particular message_id
         # exists in the sorted set of the queues message ids.
         # Note(prashanthr_): Operation of the order of O(n)
 
         messages_set_id = utils.scope_messages_set(queue, project,
-                                        QUEUE_MESSAGES_LIST_SUFFIX)
+                                                   QUEUE_MESSAGES_LIST_SUFFIX)
 
         return self._client.zrank(messages_set_id, key) is not None
 
@@ -104,7 +104,7 @@ class MessageController(storage.Message):
         # sort > 0 get from the left else from the right.
 
         messages_set_id = utils.scope_messages_set(queue, project,
-                                        QUEUE_MESSAGES_LIST_SUFFIX)
+                                                   QUEUE_MESSAGES_LIST_SUFFIX)
 
         if sort > 0:
             return self._client.zrange(messages_set_id, 0, 0)
@@ -127,16 +127,17 @@ class MessageController(storage.Message):
 
         if not self._queue_controller.exists(queue, project):
             raise errors.QueueDoesNotExist(queue,
-                                             project)
+                                           project)
 
-        messages_set_id = utils.scope_messages_set(queue, project,
-                                        QUEUE_MESSAGES_LIST_SUFFIX)
+        messages_set_id = utils.scope_messages_set(queue,
+                                                   project,
+                                                   QUEUE_MESSAGES_LIST_SUFFIX)
         client = self._client
         start = client.zrank(messages_set_id, marker) or 0
         # In a sharded context, the default values are not being set.
         limit = limit or storage.DEFAULT_MESSAGES_PER_CLAIM
         message_ids = client.zrange(messages_set_id, start, start+limit)
-        filters = defaultdict(dict)
+        filters = collections.defaultdict(dict)
 
         # Build a list of filters for checking the following:
         # 1. Message is claimed.
@@ -150,6 +151,7 @@ class MessageController(storage.Message):
             filters['echo_filter']['f.v'] = client_uuid
 
         marker = {}
+
         def _it(message_ids, filters={}):
         # The function accepts a list of filters
         # to be filtered before the the message
@@ -165,7 +167,7 @@ class MessageController(storage.Message):
                         if filter_func(message, filter_val):
                             break
                     else:
-                        marker['next'] = message['k']
+                        marker['next'] = message_id
                         yield utils.basic_message(message, now)
 
         yield _it(message_ids, filters)
@@ -185,7 +187,7 @@ class MessageController(storage.Message):
     def get(self, queue, message_id, project=None):
         if not self._queue_controller.exists(queue, project):
             raise errors.QueueDoesNotExist(queue,
-                                             project)
+                                           project)
 
         if not self._exists(queue, project, message_id):
             raise errors.MessageDoesNotExist(message_id, queue,
@@ -197,12 +199,12 @@ class MessageController(storage.Message):
     @utils.raises_conn_error
     @utils.retries_on_autoreconnect
     def bulk_get(self, queue, message_ids, project=None):
-        # TODO: Pipeline is not used here as atomic guarentee
+        # TODO(prashanthr_): Pipeline is not used here as atomic guarentee
         # is not required.but can be used for performance.
         client = self._client
         if not self._queue_controller.exists(queue, project):
                 raise errors.QueueDoesNotExist(queue,
-                                             project)
+                                               project)
 
         def _it(message_ids):
             now = timeutils.utcnow_ts()
@@ -220,10 +222,10 @@ class MessageController(storage.Message):
     def post(self, queue, messages, client_uuid, project=None):
         if not self._queue_controller.exists(queue, project):
             raise errors.QueueDoesNotExist(queue,
-                                             project)
+                                           project)
 
         messages_set_id = utils.scope_messages_set(queue, project,
-                                        QUEUE_MESSAGES_LIST_SUFFIX)
+                                                   QUEUE_MESSAGES_LIST_SUFFIX)
 
         now = timeutils.utcnow_ts()
         now_dt = datetime.datetime.utcfromtimestamp(now)
@@ -260,11 +262,11 @@ class MessageController(storage.Message):
     @utils.reset_pipeline
     def delete(self, queue, message_id, project=None, claim=None):
         messages_set_id = utils.scope_messages_set(queue, project,
-                                        QUEUE_MESSAGES_LIST_SUFFIX)
+                                                   QUEUE_MESSAGES_LIST_SUFFIX)
 
         if not self._queue_controller.exists(queue, project):
             raise errors.QueueDoesNotExist(queue,
-                                             project)
+                                           project)
 
         if not self._exists(queue, project, message_id):
             raise errors.MessageDoesNotExist(message_id, queue,
@@ -294,17 +296,13 @@ class MessageController(storage.Message):
     def bulk_delete(self, queue, message_ids, project=None):
         if not self._queue_controller.exists(queue, project):
             raise errors.QueueDoesNotExist(queue,
-                                             project)
+                                           project)
 
         messages_set_id = utils.scope_messages_set(queue, project,
-                                        QUEUE_MESSAGES_LIST_SUFFIX)
+                                                   QUEUE_MESSAGES_LIST_SUFFIX)
         pipe = self._pipeline
 
         for message_id in message_ids:
-            pipe.delete(message_id).\
-            zrem(messages_set_id, message_id)
+            pipe.delete(message_id).zrem(messages_set_id, message_id)
 
         pipe.execute()
-
-
-

@@ -12,23 +12,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from marconi.common import decorators
 from marconi.openstack.common import log as logging
 from marconi.queues import storage
-from marconi.queues.storage.redis import options
-from marconi.common import decorators
 from marconi.queues.storage.redis import controllers
+from marconi.queues.storage.redis import options
 from marconi.queues.storage.redis import utils
 import redis
 
 LOG = logging.getLogger(__name__)
 
-def _getRedisClient(conf):
+
+def _get_redis_client(conf):
     # NOTE:prashanthr_ : Check if SSL support is required.
     if conf.useSocketPath:
         return redis.StrictRedis(unix_socket_path=conf.sockPath)
     else:
         host, port = utils.get_hostport(conf['uri'])
         return redis.StrictRedis(host=host, port=port, db=conf.database)
+
 
 class DataDriver(storage.DataDriverBase):
 
@@ -54,7 +56,7 @@ class DataDriver(storage.DataDriverBase):
     @decorators.lazy_property(write=False)
     def connection(self):
         """Redis client connection instance."""
-        return _getRedisClient(self.redis_conf)
+        return _get_redis_client(self.redis_conf)
 
     @decorators.lazy_property(write=False)
     def queue_controller(self):
@@ -82,7 +84,7 @@ class ControlDriver(storage.ControlDriverBase):
     @decorators.lazy_property(write=False)
     def connection(self):
         """Redis client connection instance."""
-        return _getRedisClient(self.redis_conf)
+        return _get_redis_client(self.redis_conf)
 
     @property
     def shards_controller(self):

@@ -13,14 +13,15 @@
 # limitations under the License.
 
 from marconi.openstack.common import log as logging
-from marconi.queues import storage
-from marconi.queues.storage.redis import utils
-from marconi.queues.storage import errors
 from marconi.openstack.common import timeutils
+from marconi.queues import storage
+from marconi.queues.storage import errors
+from marconi.queues.storage.redis import utils
 
 LOG = logging.getLogger(__name__)
 
 QUEUES_SET_STORE_NAME = 'queues_set'
+
 
 class QueueController(storage.Queue):
     """Implements queue resource operations using Redis.
@@ -54,20 +55,19 @@ class QueueController(storage.Queue):
         self._pipeline = self._client.pipeline()
 
     def init_connection(self):
-        """
-            Will be used during reconnection attempts.
+        """Will be used during reconnection attempts.
         """
         self._client = self.driver.connection
 
     def _inc_counter(self, name, project, amount=1):
         q_id = utils.scope_queue_name(name, project)
-        count = self._get_queue_info(q_id , 'c', int)
+        count = self._get_queue_info(q_id, 'c', int)
         self._set_counter(q_id, count+amount)
 
     def _set_counter(self, q_id, count):
         q_info = {
             'c': count,
-            'cl': self._get_queue_info(q_id , 'cl', int),
+            'cl': self._get_queue_info(q_id, 'cl', int),
             'm': self._get_queue_info(q_id, 'm'),
             't': timeutils.utcnow_ts()
         }
@@ -93,8 +93,7 @@ class QueueController(storage.Queue):
         self._init_pipeline()
 
     def _get_queue_info(self, q_id, field, transform=str):
-        """
-            Method to retrieve a particular field from
+        """Method to retrieve a particular field from
             the queue information.
         """
         return transform(self._client.hgetall(q_id)[field])
@@ -108,7 +107,8 @@ class QueueController(storage.Queue):
         marker = utils.scope_queue_name(marker, project)
         start = client.zrank(qset_id, marker) or 0
 
-        cursor = (q for q in client.zrange(qset_id, start, start + (limit - 1)))
+        cursor = (q for q in client.zrange(qset_id, start,
+                                           start + (limit - 1)))
         marker_next = {}
 
         def denormalizer(q_info, q_name):
@@ -205,7 +205,6 @@ class QueueController(storage.Queue):
         self.driver.message_controller._delete_queue_messages(name, project)
         pipe.execute()
 
-
     @utils.raises_conn_error
     @utils.retries_on_autoreconnect
     def stats(self, name, project=None):
@@ -236,5 +235,3 @@ class QueueController(storage.Queue):
             message_stats['oldest'] = utils.stat_message(oldest, now)
 
         return {'messages': message_stats}
-
-
