@@ -16,7 +16,7 @@
 import falcon
 import six
 
-from marconi.openstack.common.gettextutils import _
+from marconi.i18n import _
 import marconi.openstack.common.log as logging
 from marconi.queues.storage import errors as storage_errors
 from marconi.queues.transport import utils
@@ -31,16 +31,19 @@ MESSAGE_POST_SPEC = (('ttl', int), ('body', '*'))
 
 class CollectionResource(object):
 
-    __slots__ = ('message_controller', '_wsgi_conf', '_validate')
+    __slots__ = ('message_controller', '_wsgi_conf', '_validate',
+                 'queue_controller')
 
-    def __init__(self, wsgi_conf, validate, message_controller):
+    def __init__(self, wsgi_conf, validate, message_controller,
+                 queue_controller):
         self._wsgi_conf = wsgi_conf
         self._validate = validate
         self.message_controller = message_controller
+        self.queue_controller = queue_controller
 
-    #-----------------------------------------------------------------------
+    # ----------------------------------------------------------------------
     # Helpers
-    #-----------------------------------------------------------------------
+    # ----------------------------------------------------------------------
 
     def _get_by_id(self, base_path, project_id, queue_name, ids):
         """Returns one or more messages from the queue by ID."""
@@ -109,13 +112,14 @@ class CollectionResource(object):
             raise wsgi_errors.HTTPServiceUnavailable(description)
 
         if not messages:
-            return None
+            messages = []
 
-        # Found some messages, so prepare the response
-        kwargs['marker'] = next(results)
-        for each_message in messages:
-            each_message['href'] = req.path + '/' + each_message['id']
-            del each_message['id']
+        else:
+            # Found some messages, so prepare the response
+            kwargs['marker'] = next(results)
+            for each_message in messages:
+                each_message['href'] = req.path + '/' + each_message['id']
+                del each_message['id']
 
         return {
             'messages': messages,
@@ -127,9 +131,9 @@ class CollectionResource(object):
             ]
         }
 
-    #-----------------------------------------------------------------------
+    # ----------------------------------------------------------------------
     # Interface
-    #-----------------------------------------------------------------------
+    # ----------------------------------------------------------------------
 
     def on_post(self, req, resp, project_id, queue_name):
         LOG.debug(u'Messages collection POST - queue:  %(queue)s, '
@@ -157,6 +161,9 @@ class CollectionResource(object):
 
         try:
             self._validate.message_posting(messages)
+
+            if not self.queue_controller.exists(queue_name, project_id):
+                self.queue_controller.create(queue_name, project_id)
 
             message_ids = self.message_controller.post(
                 queue_name,
@@ -205,40 +212,83 @@ class CollectionResource(object):
         resp.content_location = req.relative_uri
 
         ids = req.get_param_as_list('ids')
+
         if ids is None:
             response = self._get(req, project_id, queue_name)
+
         else:
             response = self._get_by_id(req.path, project_id, queue_name, ids)
 
         if response is None:
-            resp.status = falcon.HTTP_204
-            return
+            # NOTE(TheSriram): Trying to get a message by id, should
+            # return the message if its present, otherwise a 404 since
+            # the message might have been deleted.
+            resp.status = falcon.HTTP_404
 
-        resp.body = utils.to_json(response)
+        else:
+            resp.body = utils.to_json(response)
         # status defaults to 200
 
     def on_delete(self, req, resp, project_id, queue_name):
-        # NOTE(zyuan): Attempt to delete the whole message collection
-        # (without an "ids" parameter) is not allowed
-        ids = req.get_param_as_list('ids', required=True)
+        LOG.debug(u'Messages collection DELETE - queue: %(queue)s, '
+                  u'project: %(project)s',
+                  {'queue': queue_name, 'project': project_id})
 
+        ids = req.get_param_as_list('ids')
+        pop_limit = req.get_param_as_int('pop')
         try:
-            self._validate.message_listing(limit=len(ids))
-            self.message_controller.bulk_delete(
-                queue_name,
-                message_ids=ids,
-                project=project_id)
+            self._validate.message_deletion(ids, pop_limit)
 
         except validation.ValidationFailed as ex:
             LOG.debug(ex)
             raise wsgi_errors.HTTPBadRequestAPI(six.text_type(ex))
+
+        if ids:
+            resp.status = self._delete_messages_by_id(queue_name, ids,
+                                                      project_id)
+
+        elif pop_limit:
+            resp.status, resp.body = self._pop_messages(queue_name,
+                                                        project_id,
+                                                        pop_limit)
+
+    def _delete_messages_by_id(self, queue_name, ids, project_id):
+        try:
+            self.message_controller.bulk_delete(
+                queue_name,
+                message_ids=ids,
+                project=project_id)
 
         except Exception as ex:
             LOG.exception(ex)
             description = _(u'Messages could not be deleted.')
             raise wsgi_errors.HTTPServiceUnavailable(description)
 
-        resp.status = falcon.HTTP_204
+        return falcon.HTTP_204
+
+    def _pop_messages(self, queue_name, project_id, pop_limit):
+        try:
+            LOG.debug(u'POP messages - queue: %(queue)s, '
+                      u'project: %(project)s',
+                      {'queue': queue_name, 'project': project_id})
+
+            messages = self.message_controller.pop(
+                queue_name,
+                project=project_id,
+                limit=pop_limit)
+
+        except Exception as ex:
+            LOG.exception(ex)
+            description = _(u'Messages could not be popped.')
+            raise wsgi_errors.HTTPServiceUnavailable(description)
+
+        # Prepare response
+        if not messages:
+            messages = []
+        body = {'messages': messages}
+        body = utils.to_json(body)
+
+        return falcon.HTTP_200, body
 
 
 class ItemResource(object):
@@ -278,6 +328,7 @@ class ItemResource(object):
         # status defaults to 200
 
     def on_delete(self, req, resp, project_id, queue_name, message_id):
+
         LOG.debug(u'Messages item DELETE - message: %(message)s, '
                   u'queue: %(queue)s, project: %(project)s',
                   {'message': message_id,

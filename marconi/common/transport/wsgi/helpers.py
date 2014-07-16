@@ -16,8 +16,9 @@
 """wsgi transport helpers."""
 
 import falcon
+import six
 
-from marconi.openstack.common.gettextutils import _
+from marconi.i18n import _
 import marconi.openstack.common.log as logging
 from marconi.queues.transport import validation
 
@@ -74,7 +75,9 @@ def validate_queue_identification(validate, req, resp, params):
         pass
     except validation.ValidationFailed:
         project = params['project_id']
-        queue = params['queue_name'].decode('utf-8', 'replace')
+        queue = params['queue_name']
+        if six.PY2:
+            queue = queue.decode('utf-8', 'replace')
 
         LOG.debug(u'Invalid queue name "%(queue)s" submitted for '
                   u'project: %(project)s',

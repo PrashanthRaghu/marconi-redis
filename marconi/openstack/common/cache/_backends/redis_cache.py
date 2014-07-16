@@ -12,9 +12,11 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import redis
+
+from six.moves.urllib import parse
 from marconi.openstack.common.cache import backends
 from marconi.openstack.common import lockutils
-import redis
 
 CACHE_PREFIX = "cache_"
 CACHE_PREFIX_PATTERN = "cache_*"
@@ -22,14 +24,7 @@ CACHE_PREFIX_PATTERN = "cache_*"
 
 class RedisBackend(backends.BaseCache):
     """Stores the keys of the backend as a Redis hash.
-       Id: <cache_key>
-
-       value:
-
-       Field name                value
-       -------------------------------
-       t                         ttl
-       v                         value
+       Id: <cache_key> ------------- <value>
 
        Each key is set to expire at the time of ttl
        using the built in expire command provided
@@ -39,26 +34,25 @@ class RedisBackend(backends.BaseCache):
     def __init__(self, parsed_url, options=None):
         super(RedisBackend, self).__init__(parsed_url, options)
         # Use defaults for now. Let's override later.
-        self._client = redis.StrictRedis()
+        host, port = parsed_url.netloc.split(":")
+        self._client = redis.StrictRedis(host=host, port=int(port))
         self._pipeline = self._client.pipeline()
         self._clear()
 
     def _reset_pipeline(self):
         self._pipeline.reset()
 
-    def _set_unlocked(self, key, value, ttl, not_exists):
+    def _set_unlocked(self, key, value, ttl):
         pipeline = self._pipeline
         redis_key = gen_key(key)
 
-        # Set the key to the provided value and call
-        # expire at a time equal to ttl to auto expire
-        # the cache value.
-        cache_info = {
-            'v': value,
-            't': ttl
-        }
+        pipeline.delete(redis_key)
+        if isinstance(value, list):
+            for element in value:
+                pipeline.rpush(redis_key, element)
+        else:
+            pipeline.set(redis_key, value)
 
-        pipeline.hmset(redis_key, cache_info)
         pipeline.expire(redis_key, ttl)
         pipeline.execute()
         self._reset_pipeline()
@@ -69,22 +63,27 @@ class RedisBackend(backends.BaseCache):
             if not_exists and self._exists_unlocked(key):
                 return False
 
-            self._set_unlocked(key, value, ttl, not_exists)
+            self._set_unlocked(key, value, ttl)
             return True
 
     def _exists_unlocked(self, key):
         redis_key = gen_key(key)
-        return self._client.get(redis_key) is not None
+        return self._client.exists(redis_key)
 
     def _get_unlocked(self, key, default=None):
         client = self._client
         redis_key = gen_key(key)
-        cache_value = client.hgetall(redis_key)
+
+        try:
+            cache_value = client.get(redis_key)
+            cache_value = int_transform(cache_value)
+        except redis.exceptions.ResponseError:
+            cache_value = [int_transform(x) for x in client.lrange(redis_key, 0, -1)]
 
         if not cache_value:
             return (0, default)
 
-        return (int(cache_value['t']), cache_value['v'])
+        return (client.ttl(redis_key), cache_value)
 
     def _get(self, key, default):
         with lockutils.lock(key):
@@ -123,18 +122,22 @@ class RedisBackend(backends.BaseCache):
         return self._incr_append(key, delta, transform=int)
 
     def _incr_append(self, key, other, transform=int):
+        client = self._client
         with lockutils.lock(key):
             redis_key = gen_key(key)
-            timeout, value = self._get_unlocked(redis_key)
+            timeout, value = self._get_unlocked(key)
 
             if value is None:
                 return None
 
-            cache_info = {
-                'v': transform(value) + other
-            }
-            self._client.hmset(redis_key, cache_info)
-            return cache_info['v']
+            if isinstance(value, list):
+                for element in other[0]:
+                    client.rpush(redis_key, element)
+
+                return client.lrange(redis_key, 0, -1)
+            else:
+                client.incrby(redis_key, other)
+                return client.get(redis_key)
 
     def _append_tail(self, key, tail):
         return self._incr_append(key, tail)
@@ -157,3 +160,15 @@ def gen_key(key):
        the value in the cache.
     """
     return CACHE_PREFIX + key
+
+def int_transform(x):
+    try:
+        return int(x)
+    except ValueError:
+        return x
+
+if __name__ == "__main__":
+    parsed = parse.urlparse("redis://127.0.0.1:6379")
+    cache = RedisBackend(parsed, {})
+    cache.set_many({'a': 46, 'b': [1, 2, 3], 'k': [1, 2, '3', 'four']}, 300)
+    cache.get_many(['a', 'b', 'k']) 

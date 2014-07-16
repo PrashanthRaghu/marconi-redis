@@ -28,7 +28,7 @@ class NamedBinaryStr(six.binary_type):
     """Wrapper for six.binary_type to facilitate overriding __name__."""
 
 
-class NamedUnicodeStr(object):
+class NamedUnicodeStr(six.text_type):
 
     """Unicode string look-alike to facilitate overriding __name__."""
 
@@ -68,7 +68,7 @@ def annotated(test_name, test_input):
 
 
 @ddt.ddt
-class TestInsertQueue(base.FunctionalTestBase):
+class TestInsertQueue(base.V1FunctionalTestBase):
 
     """Tests for Insert queue."""
 
@@ -77,7 +77,7 @@ class TestInsertQueue(base.FunctionalTestBase):
     def setUp(self):
         super(TestInsertQueue, self).setUp()
         self.base_url = '{0}/{1}'.format(self.cfg.marconi.url,
-                                         self.cfg.marconi.version)
+                                         "v1")
 
         self.header = helpers.create_marconi_headers(self.cfg)
         self.headers_response_empty = set(['location'])
@@ -189,7 +189,7 @@ class TestInsertQueue(base.FunctionalTestBase):
 
 
 @ddt.ddt
-class TestQueueMetaData(base.FunctionalTestBase):
+class TestQueueMetaData(base.V1FunctionalTestBase):
 
     """Tests for queue metadata."""
 
@@ -199,7 +199,7 @@ class TestQueueMetaData(base.FunctionalTestBase):
         super(TestQueueMetaData, self).setUp()
 
         self.base_url = '{0}/{1}'.format(self.cfg.marconi.url,
-                                         self.cfg.marconi.version)
+                                         "v1")
 
         self.queue_url = self.base_url + '/queues/{0}'.format(uuid.uuid1())
         self.client.put(self.queue_url)
@@ -254,7 +254,7 @@ class TestQueueMetaData(base.FunctionalTestBase):
 
 
 @ddt.ddt
-class TestQueueMisc(base.FunctionalTestBase):
+class TestQueueMisc(base.V1FunctionalTestBase):
 
     server_class = base.MarconiServer
 
@@ -264,18 +264,17 @@ class TestQueueMisc(base.FunctionalTestBase):
         self.base_url = self.cfg.marconi.url
         self.client.set_base_url(self.base_url)
 
-        self.queue_url = self.base_url + '/{0}/queues/{1}' \
-                                         .format(self.cfg.marconi.version,
-                                                 uuid.uuid1())
+        self.queue_url = (self.base_url + '/{0}/queues/{1}'
+                          .format("v1", uuid.uuid1()))
 
     def test_list_queues(self):
         """List Queues."""
 
         self.client.put(self.queue_url)
         self.addCleanup(self.client.delete, self.queue_url)
-
         result = self.client.get('/{0}/queues'
-                                 .format(self.cfg.marconi.version))
+                                 .format('v1'))
+
         self.assertEqual(result.status_code, 200)
         self.assertSchema(result.json(), 'queue_list')
 
@@ -289,7 +288,7 @@ class TestQueueMisc(base.FunctionalTestBase):
 
         params = {'detailed': True}
         result = self.client.get('/{0}/queues'
-                                 .format(self.cfg.marconi.version),
+                                 .format("v1"),
                                  params=params)
         self.assertEqual(result.status_code, 200)
         self.assertSchema(result.json(), 'queue_list')
@@ -305,7 +304,7 @@ class TestQueueMisc(base.FunctionalTestBase):
 
         params = {'limit': limit}
         result = self.client.get('/{0}/queues'
-                                 .format(self.cfg.marconi.version),
+                                 .format("v1"),
                                  params=params)
         self.assertEqual(result.status_code, 400)
 
@@ -315,7 +314,7 @@ class TestQueueMisc(base.FunctionalTestBase):
         """Test health endpoint."""
 
         result = self.client.get('/{0}/health'
-                                 .format(self.cfg.marconi.version))
+                                 .format("v1"))
         self.assertEqual(result.status_code, 204)
 
     test_check_health.tags = ['positive']
@@ -335,7 +334,7 @@ class TestQueueMisc(base.FunctionalTestBase):
 
     def test_check_queue_exists_negative(self):
         """Checks non-existing queue."""
-        path = '/{0}/queues/nonexistingqueue'.format(self.cfg.marconi.version)
+        path = '/{0}/queues/nonexistingqueue'.format("v1")
         result = self.client.get(path)
         self.assertEqual(result.status_code, 404)
 
@@ -347,7 +346,7 @@ class TestQueueMisc(base.FunctionalTestBase):
     def test_get_queue_malformed_marker(self):
         """List queues with invalid marker."""
 
-        path = '/{0}/queues?marker=zzz'.format(self.cfg.marconi.version)
+        path = '/{0}/queues?marker=zzz'.format("v1")
         result = self.client.get(path)
         self.assertEqual(result.status_code, 204)
 
@@ -381,7 +380,7 @@ class TestQueueMisc(base.FunctionalTestBase):
 
         # Post Messages to the test queue
         doc = helpers.create_message_body(
-            messagecount=self.limits.max_messages_per_claim)
+            messagecount=self.limits.max_messages_per_claim_or_pop)
 
         message_url = self.queue_url + '/messages'
         result = self.client.post(message_url, data=doc)
@@ -406,7 +405,7 @@ class TestQueueMisc(base.FunctionalTestBase):
         super(TestQueueMisc, self).tearDown()
 
 
-class TestQueueNonExisting(base.FunctionalTestBase):
+class TestQueueNonExisting(base.V1FunctionalTestBase):
 
     """Test Actions on non existing queue."""
 
@@ -414,10 +413,10 @@ class TestQueueNonExisting(base.FunctionalTestBase):
 
     def setUp(self):
         super(TestQueueNonExisting, self).setUp()
-        self.base_url = '{0}/{1}'.format(self.cfg.marconi.url,
-                                         self.cfg.marconi.version)
-        self.queue_url = self.base_url + \
-            '/queues/0a5b1b85-4263-11e3-b034-28cfe91478b9'
+        self.base_url = '{0}/{1}'.format(self.cfg.marconi.url, "v1")
+        self.queue_url = (self.base_url +
+                          '/queues/0a5b1b85-4263-11e3-b034-28cfe91478b9')
+
         self.client.set_base_url(self.queue_url)
 
         self.header = helpers.create_marconi_headers(self.cfg)

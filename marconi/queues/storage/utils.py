@@ -26,9 +26,9 @@ LOG = log.getLogger(__name__)
 def dynamic_conf(uri, options):
     """Given metadata, yields a dynamic configuration.
 
-    :param uri: shard location
+    :param uri: pool location
     :type uri: six.text_type
-    :param options: additional shard metadata
+    :param options: additional pool metadata
     :type options: dict
     :returns: Configuration object suitable for constructing storage
               drivers
@@ -97,11 +97,23 @@ def keyify(key, iterable):
         def __init__(self, obj):
             self.obj = obj
 
-        def __cmp__(self, other):
-            return cmp(self.obj[key], other.obj[key])
+        def __eq__(self, other):
+            return self.obj[key] == other.obj[key]
 
-        # TODO(zyuan): define magic operators to make py3 work
-        #     http://code.activestate.com/recipes/576653/
+        def __ne__(self, other):
+            return self.obj[key] != other.obj[key]
+
+        def __lt__(self, other):
+            return self.obj[key] < other.obj[key]
+
+        def __le__(self, other):
+            return self.obj[key] <= other.obj[key]
+
+        def __gt__(self, other):
+            return self.obj[key] > other.obj[key]
+
+        def __ge__(self, other):
+            return self.obj[key] >= other.obj[key]
 
     for item in iterable:
         yield Keyed(item)

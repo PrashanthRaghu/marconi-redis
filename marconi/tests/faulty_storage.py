@@ -50,7 +50,7 @@ class ControlDriver(storage.ControlDriverBase):
         return None
 
     @property
-    def shards_controller(self):
+    def pools_controller(self):
         return None
 
 
@@ -98,6 +98,9 @@ class MessageController(storage.Message):
         raise NotImplementedError()
 
     def post(self, queue, messages, project=None):
+        raise NotImplementedError()
+
+    def pop(self, queue, pop_limit, project=None):
         raise NotImplementedError()
 
     def delete(self, queue, message_id, project=None, claim=None):

@@ -22,7 +22,7 @@ from marconi.tests.functional import helpers
 
 
 @ddt.ddt
-class TestClaims(base.FunctionalTestBase):
+class TestClaims(base.V1FunctionalTestBase):
     """Tests for Claims."""
 
     server_class = base.MarconiServer
@@ -33,7 +33,7 @@ class TestClaims(base.FunctionalTestBase):
         self.queue = uuid.uuid1()
         self.queue_url = ("{url}/{version}/queues/{queue}".format(
                           url=self.cfg.marconi.url,
-                          version=self.cfg.marconi.version,
+                          version="v1",
                           queue=self.queue))
 
         self.client.put(self.queue_url)
@@ -41,8 +41,9 @@ class TestClaims(base.FunctionalTestBase):
         self.claim_url = self.queue_url + '/claims'
         self.client.set_base_url(self.claim_url)
 
-        #Post Messages
+        # Post Messages
         url = self.queue_url + '/messages'
+
         doc = helpers.create_message_body(
             messagecount=self.limits.max_messages_per_page)
 
@@ -52,7 +53,8 @@ class TestClaims(base.FunctionalTestBase):
     @ddt.data({}, dict(limit=2))
     def test_claim_messages(self, params):
         """Claim messages."""
-        message_count = params.get('limit', 10)
+        message_count = params.get('limit',
+                                   self.limits.max_messages_per_claim_or_pop)
 
         doc = {"ttl": 300, "grace": 100}
 
@@ -64,6 +66,7 @@ class TestClaims(base.FunctionalTestBase):
 
         response_headers = set(result.headers.keys())
         self.assertIsSubset(self.headers_response_with_body, response_headers)
+        self.assertSchema(result.json(), 'claim_create')
 
     test_claim_messages.tags = ['smoke', 'positive']
 
@@ -80,6 +83,8 @@ class TestClaims(base.FunctionalTestBase):
         result = self.client.get(url)
         self.assertEqual(result.status_code, 200)
 
+        self.assertSchema(result.json(), 'claim_get')
+
     test_query_claim.tags = ['smoke', 'positive']
 
     def test_claim_more_than_allowed(self):
@@ -87,7 +92,7 @@ class TestClaims(base.FunctionalTestBase):
 
         Marconi allows a maximum of 20 messages per claim by default.
         """
-        params = {"limit": self.limits.max_messages_per_claim + 1}
+        params = {"limit": self.limits.max_messages_per_claim_or_pop + 1}
         doc = {"ttl": 300, "grace": 100}
 
         result = self.client.post(params=params, data=doc)
@@ -97,13 +102,13 @@ class TestClaims(base.FunctionalTestBase):
 
     def test_claim_patch(self):
         """Update Claim."""
-        #Test Setup - Post Claim
+        # Test Setup - Post Claim
         doc = {"ttl": 300, "grace": 400}
 
         result = self.client.post(data=doc)
         self.assertEqual(result.status_code, 201)
 
-        #Patch Claim
+        # Patch Claim
         claim_location = result.headers['Location']
         url = self.cfg.marconi.url + claim_location
         doc_updated = {"ttl": 300}
@@ -111,7 +116,7 @@ class TestClaims(base.FunctionalTestBase):
         result = self.client.patch(url, data=doc_updated)
         self.assertEqual(result.status_code, 204)
 
-        #verify that the claim TTL is updated
+        # verify that the claim TTL is updated
         result = self.client.get(url)
         new_ttl = result.json()['ttl']
         self.assertEqual(new_ttl, 300)
@@ -120,13 +125,13 @@ class TestClaims(base.FunctionalTestBase):
 
     def test_delete_claimed_message(self):
         """Delete message belonging to a Claim."""
-        #Test Setup - Post claim
+        # Test Setup - Post claim
         doc = {"ttl": 60, "grace": 60}
 
         result = self.client.post(data=doc)
         self.assertEqual(result.status_code, 201)
 
-        #Delete Claimed Messages
+        # Delete Claimed Messages
         for rst in result.json():
             href = rst['href']
             url = self.cfg.marconi.url + href
@@ -142,11 +147,11 @@ class TestClaims(base.FunctionalTestBase):
         result = self.client.post(data=doc)
         self.assertEqual(result.status_code, 201)
 
-        #Extract claim location and construct the claim URL.
+        # Extract claim location and construct the claim URL.
         location = result.headers['Location']
         url = self.cfg.marconi.url + location
 
-        #Release Claim.
+        # Release Claim.
         result = self.client.delete(url)
         self.assertEqual(result.status_code, 204)
 
@@ -209,11 +214,11 @@ class TestClaims(base.FunctionalTestBase):
         result = self.client.post(data=doc)
         self.assertEqual(result.status_code, 201)
 
-        #Extract claim location and construct the claim URL.
+        # Extract claim location and construct the claim URL.
         location = result.headers['Location']
         url = self.cfg.marconi.url + location
 
-        #Patch Claim.
+        # Patch Claim.
         doc = {"ttl": ttl}
         result = self.client.patch(url, data=doc)
         self.assertEqual(result.status_code, 400)

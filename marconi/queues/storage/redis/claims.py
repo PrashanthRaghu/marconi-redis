@@ -12,16 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import marconi.openstack.common.log as logging
-from marconi.queues.storage.redis import utils
-from marconi.queues import storage
+from marconi.openstack.common import log as logging
 from marconi.openstack.common import timeutils
+from marconi.queues import storage
 from marconi.queues.storage import errors
+from marconi.queues.storage.redis import utils
 
 LOG = logging.getLogger(__name__)
 
 QUEUE_CLAIMS_SUFFIX = 'claims'
 CLAIM_MESSAGES_SUFFIX = 'messages'
+
 
 class ClaimController(storage.Claim):
     """Implements claim resource operations using Redis.
@@ -49,8 +50,8 @@ class ClaimController(storage.Claim):
     def _exists(self, queue, claim_id, project, delete=True):
         # Note : Handle expired claims here.
         client = self._client
-        qclaims_set_id = utils.scope_claims_set(queue, project
-                                                  , QUEUE_CLAIMS_SUFFIX)
+        qclaims_set_id = utils.scope_claims_set(queue, project,
+                                                QUEUE_CLAIMS_SUFFIX)
         # Return False if no such claim exists
         if not client.sismember(qclaims_set_id, claim_id):
             return False
@@ -67,7 +68,6 @@ class ClaimController(storage.Claim):
 
         return True
 
-
     def _get_claimed_messages(self, claim_id):
         return self._client.smembers(claim_id)
 
@@ -75,8 +75,7 @@ class ClaimController(storage.Claim):
         self._pipeline = self._client.pipeline()
 
     def init_connection(self):
-        """
-            Will be used during reconnection attempts.
+        """Will be used during reconnection attempts.
         """
         self._client = self.driver.connection
 
@@ -120,8 +119,8 @@ class ClaimController(storage.Claim):
     @utils.reset_pipeline
     def create(self, queue, metadata, project=None,
                limit=storage.DEFAULT_MESSAGES_PER_CLAIM):
-        qclaims_set_id = utils.scope_claims_set(queue, project
-                                                  , QUEUE_CLAIMS_SUFFIX)
+        qclaims_set_id = utils.scope_claims_set(queue, project,
+                                                QUEUE_CLAIMS_SUFFIX)
 
         claim_id = utils.generate_uuid()
         now = timeutils.utcnow_ts()
@@ -152,9 +151,9 @@ class ClaimController(storage.Claim):
         ids = [message['id'] for message in messages_list]
 
         if len(ids) == 0:
-            return (None,iter([]))
+            return (None, iter([]))
 
-        message_info={
+        message_info = {
             'c': claim_id,
             'c.e': now + ttl
         }
@@ -175,7 +174,6 @@ class ClaimController(storage.Claim):
     @utils.reset_pipeline
     def update(self, queue, claim_id, metadata, project=None):
 
-        client = self._client
         pipe = self._pipeline
 
         if not self._exists(queue, claim_id, project):
@@ -213,8 +211,8 @@ class ClaimController(storage.Claim):
     @utils.retries_on_autoreconnect
     @utils.reset_pipeline
     def delete(self, queue, claim_id, project=None):
-        qclaims_set_id = utils.scope_claims_set(queue, project
-                                                , QUEUE_CLAIMS_SUFFIX)
+        qclaims_set_id = utils.scope_claims_set(queue, project,
+                                                QUEUE_CLAIMS_SUFFIX)
         pipe = self._pipeline
 
         # delete:False avoids an infinite recursive case.

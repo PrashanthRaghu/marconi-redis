@@ -21,6 +21,7 @@ import uuid
 import mock
 from pymongo import cursor
 import pymongo.errors
+import six
 from testtools import matchers
 
 from marconi.openstack.common.cache import cache as oslo_cache
@@ -31,16 +32,22 @@ from marconi.queues.storage import mongodb
 from marconi.queues.storage.mongodb import controllers
 from marconi.queues.storage.mongodb import options
 from marconi.queues.storage.mongodb import utils
+from marconi.queues.storage import pooling
 from marconi import tests as testing
 from marconi.tests.queues.storage import base
 
 
-def _cleanup_databases(controller):
-    databases = (controller.driver.message_databases +
-                 [controller.driver.queues_database])
+class MongodbDBSetup(testing.TestBase):
+    def _purge_databases(self):
+        databases = (self.driver.message_databases +
+                     [self.driver.queues_database])
 
-    for db in databases:
-        controller.driver.connection.drop_database(db)
+        for db in databases:
+            self.driver.connection.drop_database(db)
+
+    def _prepare_conf(self):
+        self.config(options.MONGODB_GROUP,
+                    database=uuid.uuid4().hex)
 
 
 class MongodbUtilsTest(testing.TestBase):
@@ -133,9 +140,6 @@ class MongodbDriverTest(testing.TestBase):
 
     config_file = 'wsgi_mongodb.conf'
 
-    def _purge_databases(self):
-        _cleanup_databases(self)
-
     def test_db_instance(self):
         cache = oslo_cache.get_cache()
         driver = mongodb.DataDriver(self.conf, cache)
@@ -155,13 +159,6 @@ class MongodbQueueTests(base.QueueControllerTest):
     config_file = 'wsgi_mongodb.conf'
     controller_class = controllers.QueueController
 
-    def _purge_databases(self):
-        _cleanup_databases(self)
-
-    def _prepare_conf(self):
-        self.config(options.MONGODB_GROUP,
-                    database=uuid.uuid4().hex)
-
     def test_indexes(self):
         collection = self.controller._collection
         indexes = collection.index_information()
@@ -179,7 +176,9 @@ class MongodbQueueTests(base.QueueControllerTest):
 
     def test_raises_connection_error(self):
 
-        with mock.patch.object(cursor.Cursor, 'next', autospec=True) as method:
+        with mock.patch.object(cursor.Cursor,
+                               'next' if six.PY2 else '__next__',
+                               autospec=True) as method:
             error = pymongo.errors.ConnectionFailure()
             method.side_effect = error
 
@@ -198,13 +197,6 @@ class MongodbMessageTests(base.MessageControllerTest):
     # NOTE(kgriffs): MongoDB's TTL scavenger only runs once a minute
     gc_interval = 60
 
-    def _purge_databases(self):
-        _cleanup_databases(self)
-
-    def _prepare_conf(self):
-        self.config(options.MONGODB_GROUP,
-                    database=uuid.uuid4().hex)
-
     def test_indexes(self):
         for collection in self.controller._collections:
             indexes = collection.index_information()
@@ -214,55 +206,68 @@ class MongodbMessageTests(base.MessageControllerTest):
             self.assertIn('counting', indexes)
 
     def test_message_counter(self):
-        queue_name = 'marker_test'
+        queue_name = self.queue_name
         iterations = 10
 
-        self.queue_controller.create(queue_name)
-
-        seed_marker1 = self.queue_controller._get_counter(queue_name)
+        seed_marker1 = self.queue_controller._get_counter(queue_name,
+                                                          self.project)
         self.assertEqual(seed_marker1, 1, 'First marker is 1')
 
         for i in range(iterations):
-            self.controller.post(queue_name, [{'ttl': 60}], 'uuid')
+            self.controller.post(queue_name, [{'ttl': 60}],
+                                 'uuid', project=self.project)
 
-            marker1 = self.queue_controller._get_counter(queue_name)
-            marker2 = self.queue_controller._get_counter(queue_name)
-            marker3 = self.queue_controller._get_counter(queue_name)
+            marker1 = self.queue_controller._get_counter(queue_name,
+                                                         self.project)
+            marker2 = self.queue_controller._get_counter(queue_name,
+                                                         self.project)
+            marker3 = self.queue_controller._get_counter(queue_name,
+                                                         self.project)
 
             self.assertEqual(marker1, marker2)
             self.assertEqual(marker2, marker3)
             self.assertEqual(marker1, i + 2)
 
-        new_value = self.queue_controller._inc_counter(queue_name)
+        new_value = self.queue_controller._inc_counter(queue_name,
+                                                       self.project)
         self.assertIsNotNone(new_value)
 
-        value_before = self.queue_controller._get_counter(queue_name)
-        new_value = self.queue_controller._inc_counter(queue_name)
+        value_before = self.queue_controller._get_counter(queue_name,
+                                                          project=self.project)
+        new_value = self.queue_controller._inc_counter(queue_name,
+                                                       project=self.project)
         self.assertIsNotNone(new_value)
-        value_after = self.queue_controller._get_counter(queue_name)
+        value_after = self.queue_controller._get_counter(queue_name,
+                                                         project=self.project)
         self.assertEqual(value_after, value_before + 1)
 
         value_before = value_after
-        new_value = self.queue_controller._inc_counter(queue_name, amount=7)
-        value_after = self.queue_controller._get_counter(queue_name)
+        new_value = self.queue_controller._inc_counter(queue_name,
+                                                       project=self.project,
+                                                       amount=7)
+        value_after = self.queue_controller._get_counter(queue_name,
+                                                         project=self.project)
         self.assertEqual(value_after, value_before + 7)
         self.assertEqual(value_after, new_value)
 
         reference_value = value_after
 
-        unchanged = self.queue_controller._inc_counter(queue_name, window=10)
+        unchanged = self.queue_controller._inc_counter(queue_name,
+                                                       project=self.project,
+                                                       window=10)
         self.assertIsNone(unchanged)
 
         now = timeutils.utcnow() + datetime.timedelta(seconds=10)
         timeutils_utcnow = 'marconi.openstack.common.timeutils.utcnow'
         with mock.patch(timeutils_utcnow) as mock_utcnow:
             mock_utcnow.return_value = now
-            changed = self.queue_controller._inc_counter(queue_name, window=5)
+            changed = self.queue_controller._inc_counter(queue_name,
+                                                         project=self.project,
+                                                         window=5)
             self.assertEqual(changed, reference_value + 1)
 
     def test_race_condition_on_post(self):
-        queue_name = 'marker_test'
-        self.queue_controller.create(queue_name)
+        queue_name = self.queue_name
 
         expected_messages = [
             {
@@ -300,7 +305,8 @@ class MongodbMessageTests(base.MessageControllerTest):
 
             method.return_value = 2
             messages = expected_messages[:1]
-            created = list(self.controller.post(queue_name, messages, uuid))
+            created = list(self.controller.post(queue_name, messages,
+                                                uuid, project=self.project))
             self.assertEqual(len(created), 1)
 
             # Force infinite retries
@@ -308,18 +314,19 @@ class MongodbMessageTests(base.MessageControllerTest):
                 method.return_value = None
 
                 with testing.expect(errors.MessageConflict):
-                    self.controller.post(queue_name, messages, uuid)
+                    self.controller.post(queue_name, messages,
+                                         uuid, project=self.project)
 
         created = list(self.controller.post(queue_name,
                                             expected_messages[1:],
-                                            uuid))
+                                            uuid, project=self.project))
 
         self.assertEqual(len(created), 2)
 
         expected_ids = [m['body']['backupId'] for m in expected_messages]
 
         interaction = self.controller.list(queue_name, client_uuid=uuid,
-                                           echo=True)
+                                           echo=True, project=self.project)
 
         actual_messages = list(next(interaction))
         self.assertEqual(len(actual_messages), len(expected_messages))
@@ -327,19 +334,48 @@ class MongodbMessageTests(base.MessageControllerTest):
 
         self.assertEqual(actual_ids, expected_ids)
 
-    def test_empty_queue_exception(self):
-        queue_name = 'empty-queue-test'
-        self.queue_controller.create(queue_name)
+    def test_pop_messages(self):
+        queue_name = 'pop-queue-test'
+        self.queue_controller.create(queue_name, self.project)
+        messages = [
+            {
+                'ttl': 60,
+                'body': {
+                    'event': 'BackupStarted',
+                    'backupId': 'c378813c-3f0b-11e2-ad92-7823d2b0f3ce',
+                },
+            },
+            {
+                'ttl': 60,
+                'body': {
+                    'event': 'BackupStarted',
+                    'backupId': 'd378813c-3f0b-11e2-ad92-7823d2b0f3ce',
+                },
+            },
+            {
+                'ttl': 60,
+                'body': {
+                    'event': 'BackupStarted',
+                    'backupId': 'e378813c-3f0b-11e2-ad92-7823d2b0f3ce',
+                },
+            },
+        ]
+        self.controller.post(queue_name, messages, uuid.uuid1(), self.project)
+        message_popped = self.controller.pop(queue_name,
+                                             limit=1,
+                                             project=self.project)
+        self.assertEqual(len(message_popped), 1)
 
+    def test_empty_queue_exception(self):
         self.assertRaises(storage.errors.QueueIsEmpty,
-                          self.controller.first, queue_name)
+                          self.controller.first,
+                          self.queue_name, project=self.project)
 
     def test_invalid_sort_option(self):
-        queue_name = 'empty-queue-test'
-        self.queue_controller.create(queue_name)
-
         self.assertRaises(ValueError,
-                          self.controller.first, queue_name, sort=0)
+                          self.controller.first,
+                          self.queue_name, sort=0,
+                          project=self.project)
 
 
 @testing.requires_mongodb
@@ -348,13 +384,6 @@ class MongodbClaimTests(base.ClaimControllerTest):
     driver_class = mongodb.DataDriver
     config_file = 'wsgi_mongodb.conf'
     controller_class = controllers.ClaimController
-
-    def _purge_databases(self):
-        _cleanup_databases(self)
-
-    def _prepare_conf(self):
-        self.config(options.MONGODB_GROUP,
-                    database=uuid.uuid4().hex)
 
     def test_claim_doesnt_exist(self):
         """Verifies that operations fail on expired/missing claims.
@@ -383,16 +412,16 @@ class MongodbClaimTests(base.ClaimControllerTest):
 
 
 @testing.requires_mongodb
-class MongodbShardsTests(base.ShardsControllerTest):
+class MongodbPoolsTests(base.PoolsControllerTest):
     driver_class = mongodb.ControlDriver
-    controller_class = controllers.ShardsController
+    controller_class = controllers.PoolsController
 
     def setUp(self):
-        super(MongodbShardsTests, self).setUp()
+        super(MongodbPoolsTests, self).setUp()
         self.load_conf('wsgi_mongodb.conf')
 
     def tearDown(self):
-        super(MongodbShardsTests, self).tearDown()
+        super(MongodbPoolsTests, self).tearDown()
 
 
 @testing.requires_mongodb
@@ -407,3 +436,30 @@ class MongodbCatalogueTests(base.CatalogueControllerTest):
     def tearDown(self):
         self.controller.drop_all()
         super(MongodbCatalogueTests, self).tearDown()
+
+
+@testing.requires_mongodb
+class PooledMessageTests(base.MessageControllerTest):
+    config_file = 'wsgi_mongodb_pooled.conf'
+    controller_class = pooling.MessageController
+    driver_class = pooling.DataDriver
+    control_driver_class = mongodb.ControlDriver
+    controller_base_class = pooling.RoutingController
+
+
+@testing.requires_mongodb
+class PooledQueueTests(base.QueueControllerTest):
+    config_file = 'wsgi_mongodb_pooled.conf'
+    controller_class = pooling.QueueController
+    driver_class = pooling.DataDriver
+    control_driver_class = mongodb.ControlDriver
+    controller_base_class = pooling.RoutingController
+
+
+@testing.requires_mongodb
+class PooledClaimsTests(base.ClaimControllerTest):
+    config_file = 'wsgi_mongodb_pooled.conf'
+    controller_class = pooling.ClaimController
+    driver_class = pooling.DataDriver
+    control_driver_class = mongodb.ControlDriver
+    controller_base_class = pooling.RoutingController

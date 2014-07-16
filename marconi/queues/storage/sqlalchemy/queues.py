@@ -12,8 +12,6 @@
 # License for the specific language governing permissions and limitations under
 # the License.
 
-import json
-
 import sqlalchemy as sa
 from sqlalchemy.sql import func as sfunc
 
@@ -52,7 +50,7 @@ class QueueController(storage.Queue):
                 marker_name['next'] = rec[0]
                 yield ({'name': rec[0]} if not detailed
                        else
-                       {'name': rec[0], 'metadata': json.loads(rec[1])})
+                       {'name': rec[0], 'metadata': utils.json_decode(rec[1])})
 
         yield it()
         yield marker_name['next']
@@ -66,7 +64,7 @@ class QueueController(storage.Queue):
                                 tables.Queues.c.project == project,
                                 tables.Queues.c.name == name
                                 ))
-            return json.loads(self.driver.get(sel)[0])
+            return utils.json_decode(self.driver.get(sel)[0])
         except utils.NoResult:
             raise errors.QueueDoesNotExist(name, project)
 
@@ -76,7 +74,7 @@ class QueueController(storage.Queue):
 
         try:
             ins = tables.Queues.insert().values(project=project, name=name,
-                                                metadata=json.dumps({}))
+                                                metadata=utils.json_encode({}))
             res = self.driver.run(ins)
         except sa.exc.IntegrityError:
             return False
@@ -100,11 +98,12 @@ class QueueController(storage.Queue):
         if project is None:
             project = ''
 
-        update = tables.Queues.update().\
-            where(sa.and_(
-                tables.Queues.c.project == project,
-                tables.Queues.c.name == name)).\
-            values(metadata=json.dumps(metadata))
+        update = (tables.Queues.update().
+                  where(sa.and_(
+                      tables.Queues.c.project == project,
+                      tables.Queues.c.name == name)).
+                  values(metadata=utils.json_encode(metadata)))
+
         res = self.driver.run(update)
 
         try:
@@ -133,15 +132,13 @@ class QueueController(storage.Queue):
                               tables.Messages.c.qid == qid,
                               tables.Messages.c.cid != (None),
                               tables.Messages.c.ttl >
-                              sfunc.now() - tables.Messages.c.created,
-                          )),
+                              sfunc.now() - tables.Messages.c.created)),
             sa.sql.select([sa.func.count(tables.Messages.c.id)],
                           sa.and_(
                               tables.Messages.c.qid == qid,
                               tables.Messages.c.cid == (None),
                               tables.Messages.c.ttl >
-                              sfunc.now() - tables.Messages.c.created,
-                          ))
+                              sfunc.now() - tables.Messages.c.created))
         ])
 
         claimed, free = self.driver.get(sel)

@@ -229,7 +229,7 @@ class QueueController(storage.Queue):
             newest = msg_ctrl.first(name, project, 1)
             oldest = msg_ctrl.first(name, project, -1)
         except errors.QueueIsEmpty:
-            pass
+            raise
         else:
             message_stats['newest'] = utils.stat_message(newest, now)
             message_stats['oldest'] = utils.stat_message(oldest, now)

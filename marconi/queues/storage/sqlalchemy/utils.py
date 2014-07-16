@@ -19,7 +19,9 @@ import sqlalchemy as sa
 from sqlalchemy import exc
 from sqlalchemy.sql import func as sfunc
 
+from marconi.openstack.common import jsonutils
 from marconi.openstack.common import log as logging
+from marconi.openstack.common import strutils
 from marconi.queues.storage import errors
 from marconi.queues.storage.sqlalchemy import tables
 
@@ -86,7 +88,9 @@ def msgid_decode(id):
 
 
 def marker_encode(id):
-    return oct(id ^ 0x3c96a355)[1:]
+    # NOTE(AAzza): cannot use oct(id) here, because on Python 3 it returns
+    # string with prefix '0o', whereas on Python 2 prefix is just '0'
+    return '{0:o}'.format(id ^ 0x3c96a355)
 
 
 def marker_decode(id):
@@ -121,3 +125,11 @@ def stat_message(message):
         'age': message['age'],
         'created': message['created'],
     }
+
+
+def json_encode(obj):
+    return strutils.safe_encode(jsonutils.dumps(obj), 'utf-8')
+
+
+def json_decode(binary):
+    return jsonutils.loads(binary, 'utf-8')

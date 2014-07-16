@@ -15,7 +15,7 @@
 
 import falcon
 
-from marconi.openstack.common.gettextutils import _
+from marconi.i18n import _
 import marconi.openstack.common.log as logging
 from marconi.queues.storage import errors as storage_errors
 from marconi.queues.transport import utils
@@ -53,6 +53,17 @@ class Resource(object):
             resp.content_location = req.path
             resp.body = utils.to_json(resp_dict)
             # status defaults to 200
+
+        except storage_errors.QueueDoesNotExist as ex:
+            resp_dict = {
+                'messages': {
+                    'claimed': 0,
+                    'free': 0,
+                    'total': 0
+                }
+            }
+            resp.content_location = req.path
+            resp.body = utils.to_json(resp_dict)
 
         except storage_errors.DoesNotExist as ex:
             LOG.debug(ex)

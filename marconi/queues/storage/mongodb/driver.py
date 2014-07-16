@@ -15,6 +15,8 @@
 
 """Mongodb storage driver implementation."""
 
+import ssl
+
 import pymongo
 import pymongo.errors
 
@@ -34,6 +36,29 @@ def _connection(conf):
     else:
         MongoClient = pymongo.MongoClient
 
+    if conf.uri and 'ssl=true' in conf.uri.lower():
+        kwargs = {}
+
+        # Default to CERT_REQUIRED
+        ssl_cert_reqs = ssl.CERT_REQUIRED
+
+        if conf.ssl_cert_reqs == 'CERT_OPTIONAL':
+            ssl_cert_reqs = ssl.CERT_OPTIONAL
+
+        if conf.ssl_cert_reqs == 'CERT_NONE':
+            ssl_cert_reqs = ssl.CERT_NONE
+
+        kwargs['ssl_cert_reqs'] = ssl_cert_reqs
+
+        if conf.ssl_keyfile:
+            kwargs['ssl_keyfile'] = conf.ssl_keyfile
+        if conf.ssl_certfile:
+            kwargs['ssl_certfile'] = conf.ssl_certfile
+        if conf.ssl_ca_certs:
+            kwargs['ssl_ca_certs'] = conf.ssl_ca_certs
+
+        return MongoClient(conf.uri, **kwargs)
+
     return MongoClient(conf.uri)
 
 
@@ -45,8 +70,8 @@ class DataDriver(storage.DataDriverBase):
         opts = options.MONGODB_OPTIONS
 
         # NOTE(cpp-cabrera): if this data driver is being loaded
-        # dynamically, as would be the case for a sharded context,
-        # filter out the options that were given by the shard
+        # dynamically, as would be the case for a pooled context,
+        # filter out the options that were given by the pool
         # catalogue to avoid DuplicateOptErrors.
         if 'dynamic' in conf:
             names = conf[options.MONGODB_GROUP].keys()
@@ -131,8 +156,8 @@ class ControlDriver(storage.ControlDriverBase):
         return self.connection[name]
 
     @property
-    def shards_controller(self):
-        return controllers.ShardsController(self)
+    def pools_controller(self):
+        return controllers.PoolsController(self)
 
     @property
     def catalogue_controller(self):

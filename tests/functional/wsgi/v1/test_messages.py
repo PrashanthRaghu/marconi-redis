@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import division
+
 import uuid
 
 import ddt
@@ -22,7 +24,7 @@ from marconi.tests.functional import helpers
 
 
 @ddt.ddt
-class TestMessages(base.FunctionalTestBase):
+class TestMessages(base.V1FunctionalTestBase):
 
     """Tests for Messages."""
 
@@ -34,7 +36,7 @@ class TestMessages(base.FunctionalTestBase):
         self.queue = uuid.uuid1()
         self.queue_url = ("{url}/{version}/queues/{queue}".format(
                           url=self.cfg.marconi.url,
-                          version=self.cfg.marconi.version,
+                          version="v1",
                           queue=self.queue))
 
         self.client.put(self.queue_url)
@@ -52,7 +54,7 @@ class TestMessages(base.FunctionalTestBase):
         doc = '[{{"body": "{0}", "ttl": 300}}, {{"body": "{1}", "ttl": 120}}]'
         overhead = len(doc.format('', ''))
 
-        half_size = (self.limits.max_message_size - overhead) / 2
+        half_size = (self.limits.max_message_size - overhead) // 2
         doc = doc.format(helpers.generate_random_string(half_size),
                          helpers.generate_random_string(half_size + offset))
 
@@ -144,8 +146,9 @@ class TestMessages(base.FunctionalTestBase):
         expected_msg_count = params.get('limit', 10)
 
         # Test Setup
-        doc = helpers.create_message_body(messagecount=
-                                          self.limits.max_messages_per_page)
+        doc = helpers.create_message_body(
+            messagecount=self.limits.max_messages_per_page)
+
         result = self.client.post(data=doc)
         self.assertEqual(result.status_code, 201)
 
@@ -161,6 +164,8 @@ class TestMessages(base.FunctionalTestBase):
             if result.status_code == 200:
                 actual_msg_count = len(result.json()['messages'])
                 self.assertMessageCount(actual_msg_count, expected_msg_count)
+
+                self.assertSchema(result.json(), 'message_list')
 
                 href = result.json()['links'][0]['href']
                 url = self.cfg.marconi.url + href
@@ -245,6 +250,8 @@ class TestMessages(base.FunctionalTestBase):
         result = self.client.get(url)
         self.assertEqual(result.status_code, 200)
 
+        self.assertSchema(result.json(), "message_get_many")
+
     test_message_partial_get.tags = ['negative']
 
     @ddt.data(-10, -1, 0)
@@ -256,12 +263,12 @@ class TestMessages(base.FunctionalTestBase):
     test_message_bulk_insert_large_bodies.tags = ['positive']
 
     @ddt.data(1, 10)
-    def test_message_bulk_insert_large_bodies(self, offset):
+    def test_message_bulk_insert_large_bodies_(self, offset):
         """Insert just under than max allowed messages."""
         result = self._post_large_bulk_insert(offset)
         self.assertEqual(result.status_code, 400)
 
-    test_message_bulk_insert_large_bodies.tags = ['negative']
+    test_message_bulk_insert_large_bodies_.tags = ['negative']
 
     def test_message_bulk_insert_oversized(self):
         """Insert more than max allowed size."""
@@ -269,7 +276,7 @@ class TestMessages(base.FunctionalTestBase):
         doc = '[{{"body": "{0}", "ttl": 300}}, {{"body": "{1}", "ttl": 120}}]'
         overhead = len(doc.format('', ''))
 
-        half_size = (self.limits.max_message_size - overhead) / 2
+        half_size = (self.limits.max_message_size - overhead) // 2
         doc = doc.format(helpers.generate_random_string(half_size),
                          helpers.generate_random_string(half_size + 1))
 
@@ -296,9 +303,9 @@ class TestMessages(base.FunctionalTestBase):
         By default, max messages that can be deleted in a single
         request is 20.
         """
-        url = self.message_url + '?ids=' \
-            + ','.join(str(i) for i in
-                       range(self.limits.max_messages_per_page + 1))
+        url = (self.message_url + '?ids=' +
+               ','.join(str(i) for i in
+                        range(self.limits.max_messages_per_page + 1)))
         result = self.client.delete(url)
 
         self.assertEqual(result.status_code, 400)
@@ -311,9 +318,9 @@ class TestMessages(base.FunctionalTestBase):
         By default, max messages that can be fetched in a single
         request is 20.
         """
-        url = self.message_url + '?ids=' \
-            + ','.join(str(i) for i in
-                       range(self.limits.max_messages_per_page + 1))
+        url = (self.message_url + '?ids=' +
+               ','.join(str(i) for i in
+                        range(self.limits.max_messages_per_page + 1)))
         result = self.client.get(url)
 
         self.assertEqual(result.status_code, 400)

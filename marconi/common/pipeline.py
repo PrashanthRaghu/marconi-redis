@@ -34,7 +34,7 @@ import contextlib
 import six
 
 from marconi.common import decorators
-from marconi.openstack.common.gettextutils import _
+from marconi.i18n import _
 import marconi.openstack.common.log as logging
 
 LOG = logging.getLogger(__name__)
@@ -48,7 +48,7 @@ class Pipeline(object):
     def append(self, stage):
         self._pipeline.append(stage)
 
-    @decorators.cached_getattr
+    @decorators.memoized_getattr
     def __getattr__(self, name):
         with self.consumer_for(name) as consumer:
             return consumer

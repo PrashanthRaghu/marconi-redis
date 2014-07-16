@@ -59,8 +59,10 @@ def expect(*exc_type):
 
 @contextlib.contextmanager
 def partitions(controller, count):
-    """context_manager: Creates `count` partitions in storage,
-    and deletes them once this goes out of scope.
+    """Context manager to create several partitions for testing.
+
+    The partitions are automatically deleted when the context manager
+    goes out of scope.
 
     :param controller:
     :param count: int - number of partitions to create
@@ -79,8 +81,10 @@ def partitions(controller, count):
 
 @contextlib.contextmanager
 def partition(controller, name, weight, hosts):
-    """context_manager: Creates a single partition that is deleted
-    once this context manager goes out of scope.
+    """Context manager to create a single partition for testing.
+
+    The partition is automatically deleted when the context manager
+    goes out of scope.
 
     :param controller: storage handler
     :param name: str - partition name
@@ -95,8 +99,10 @@ def partition(controller, name, weight, hosts):
 
 @contextlib.contextmanager
 def entry(controller, project, queue, partition, host, metadata={}):
-    """Creates a catalogue entry with the given details, and deletes
-    it once the context manager goes out of scope.
+    """Context manager to create a catalogue entry for testing.
+
+    The entry is automatically deleted when the context manager
+    goes out of scope.
 
     :param controller: storage handler
     :param project: str - namespace for queue
@@ -113,8 +119,10 @@ def entry(controller, project, queue, partition, host, metadata={}):
 
 @contextlib.contextmanager
 def entries(controller, count):
-    """Creates `count` catalogue entries with the given details, and
-    deletes them once the context manager goes out of scope.
+    """Context manager to create several catalogue entries for testing.
+
+    The entries are automatically deleted when the context manager
+    goes out of scope.
 
     :param controller: storage handler
     :param count: int - number of entries to create
@@ -134,9 +142,11 @@ def entries(controller, count):
 
 
 @contextlib.contextmanager
-def shard_entry(controller, project, queue, shard):
-    """Creates a catalogue entry with the given details, and deletes
-    it once the context manager goes out of scope.
+def pool_entry(controller, project, queue, pool):
+    """Context manager to create a catalogue entry for testing.
+
+    The entry is automatically deleted when the context manager
+    goes out of scope.
 
     :param controller: storage handler
     :type controller: queues.storage.base:CatalogueBase
@@ -144,26 +154,28 @@ def shard_entry(controller, project, queue, shard):
     :type project: six.text_type
     :param queue: name of queue
     :type queue: six.text_type
-    :param shard: an identifier for the shard
-    :type shard: six.text_type
-    :returns: (project, queue, shard)
+    :param pool: an identifier for the pool
+    :type pool: six.text_type
+    :returns: (project, queue, pool)
     :rtype: (six.text_type, six.text_type, six.text_type)
     """
-    controller.insert(project, queue, shard)
-    yield (project, queue, shard)
+    controller.insert(project, queue, pool)
+    yield (project, queue, pool)
     controller.delete(project, queue)
 
 
 @contextlib.contextmanager
-def shard_entries(controller, count):
-    """Creates `count` catalogue entries with the given details, and
-    deletes them once the context manager goes out of scope.
+def pool_entries(controller, count):
+    """Context manager to create several catalogue entries for testing.
+
+    The entries are automatically deleted when the context manager
+    goes out of scope.
 
     :param controller: storage handler
     :type controller: queues.storage.base:CatalogueBase
     :param count: number of entries to create
     :type count: int
-    :returns: [(project, queue, shard)]
+    :returns: [(project, queue, pool)]
     :rtype: [(six.text_type, six.text_type, six.text_type)]
     """
     spec = [(u'_', six.text_type(uuid.uuid1()), six.text_type(i))

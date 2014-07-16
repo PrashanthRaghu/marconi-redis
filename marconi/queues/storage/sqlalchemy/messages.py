@@ -14,7 +14,6 @@
 # limitations under the License.
 
 import calendar
-import json
 
 import sqlalchemy as sa
 from sqlalchemy.sql import func as sfunc
@@ -76,7 +75,7 @@ class MessageController(storage.Message):
             'id': message_id,
             'ttl': ttl,
             'age': now - calendar.timegm(created.timetuple()),
-            'body': json.loads(body),
+            'body': utils.json_decode(body),
         }
 
     def bulk_get(self, queue, message_ids, project):
@@ -110,7 +109,7 @@ class MessageController(storage.Message):
                 'id': utils.msgid_encode(int(id)),
                 'ttl': ttl,
                 'age': now - calendar.timegm(created.timetuple()),
-                'body': json.loads(body),
+                'body': utils.json_decode(body),
             }
 
     def first(self, queue, project=None, sort=1):
@@ -157,7 +156,6 @@ class MessageController(storage.Message):
 
         if project is None:
             project = ''
-
         with self.driver.trans() as trans:
             sel = sa.sql.select([tables.Messages.c.id,
                                  tables.Messages.c.body,
@@ -203,7 +201,7 @@ class MessageController(storage.Message):
                         'id': utils.msgid_encode(id),
                         'ttl': ttl,
                         'age': now - calendar.timegm(created.timetuple()),
-                        'body': json.loads(body),
+                        'body': utils.json_decode(body),
                     }
 
             yield it()
@@ -216,11 +214,13 @@ class MessageController(storage.Message):
         with self.driver.trans() as trans:
             qid = utils.get_qid(self.driver, queue, project)
 
+            # TODO(kgriffs): Need to port this to sqla! Bug #1331228
+            #
             # cleanup all expired messages in this queue
-            #self.driver.run('''
-            #    delete from Messages
-            #     where ttl <= julianday() * 86400.0 - created
-            #       and qid = ?''', qid)
+            # self.driver.run('''
+            #     delete from Messages
+            #      where ttl <= julianday() * 86400.0 - created
+            #        and qid = ?''', qid)
 
             # executemany() sets lastrowid to None, so no matter we manually
             # generate the IDs or not, we still need to query for it.
@@ -229,7 +229,7 @@ class MessageController(storage.Message):
                 for m in messages:
                     yield dict(qid=qid,
                                ttl=m['ttl'],
-                               body=json.dumps(m['body']),
+                               body=utils.json_encode(m['body']),
                                client=str(client_uuid))
 
             result = trans.execute(tables.Messages.insert(), list(it()))
@@ -239,7 +239,7 @@ class MessageController(storage.Message):
             statement = statement.order_by(tables.Messages.c.id.desc())
             result = trans.execute(statement).fetchall()
 
-        return map(utils.msgid_encode, [i[0] for i in reversed(result)])
+        return [utils.msgid_encode(i[0]) for i in reversed(result)]
 
     def delete(self, queue, message_id, project, claim=None):
         if project is None:
@@ -293,3 +293,49 @@ class MessageController(storage.Message):
                         tables.Messages.c.qid == qid]
 
             trans.execute(statement.where(sa.and_(*and_stmt)))
+
+    def pop(self, queue_name, limit, project=None):
+        if project is None:
+            project = ''
+
+        with self.driver.trans() as trans:
+            sel = sa.sql.select([tables.Messages.c.id,
+                                 tables.Messages.c.body,
+                                 tables.Messages.c.ttl,
+                                 tables.Messages.c.created])
+
+            j = sa.join(tables.Messages, tables.Queues,
+                        tables.Messages.c.qid == tables.Queues.c.id)
+
+            sel = sel.select_from(j)
+            and_clause = [tables.Queues.c.name == queue_name,
+                          tables.Queues.c.project == project]
+
+            and_clause.append(tables.Messages.c.cid == (None))
+
+            sel = sel.where(sa.and_(*and_clause))
+            sel = sel.limit(limit)
+
+            records = trans.execute(sel)
+            now = timeutils.utcnow_ts()
+            messages = []
+            message_ids = []
+            for id, body, ttl, created in records:
+                messages.append({
+                    'id': utils.msgid_encode(id),
+                    'ttl': ttl,
+                    'age': now - calendar.timegm(created.timetuple()),
+                    'body': utils.json_decode(body),
+                })
+                message_ids.append(id)
+
+            statement = tables.Messages.delete()
+
+            qid = utils.get_qid(self.driver, queue_name, project)
+
+            and_stmt = [tables.Messages.c.id.in_(message_ids),
+                        tables.Messages.c.qid == qid]
+
+            trans.execute(statement.where(sa.and_(*and_stmt)))
+
+            return messages

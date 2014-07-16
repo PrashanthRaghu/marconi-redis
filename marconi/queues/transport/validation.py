@@ -17,12 +17,11 @@ import re
 
 from oslo.config import cfg
 
-from marconi.openstack.common.gettextutils import _
+from marconi.i18n import _
 
 MIN_MESSAGE_TTL = 60
 MIN_CLAIM_TTL = 60
 MIN_CLAIM_GRACE = 60
-
 
 _TRANSPORT_LIMITS_OPTIONS = (
     cfg.IntOpt('max_queues_per_page', default=20,
@@ -32,7 +31,10 @@ _TRANSPORT_LIMITS_OPTIONS = (
                deprecated_name='message_paging_uplimit',
                deprecated_group='limits:transport'),
 
-    cfg.IntOpt('max_messages_per_claim', default=20),
+    cfg.IntOpt('max_messages_per_claim_or_pop', default=20,
+               deprecated_name='max_messages_per_claim',
+               help='The maximum number of messages that can be claimed (OR) '
+                    'popped in a single request'),
 
     cfg.IntOpt('max_queue_metadata', default=64 * 1024,
                deprecated_name='metadata_size_uplimit',
@@ -123,7 +125,8 @@ class Validator(object):
         :param content_length: Queue request's length.
         :raises: ValidationFailed if the metadata is oversize.
         """
-
+        if content_length is None:
+            return
         if content_length > self._limits_conf.max_queue_metadata:
             msg = _(u'Queue metadata is too large. Max size: {0}')
             raise ValidationFailed(msg, self._limits_conf.max_queue_metadata)
@@ -148,6 +151,8 @@ class Validator(object):
         :param content_length: Queue request's length.
         :raises: ValidationFailed if the metadata is oversize.
         """
+        if content_length is None:
+            return
         if content_length > self._limits_conf.max_message_size:
             raise ValidationFailed(
                 _(u'Message collection size is too large. Max size {0}'),
@@ -181,6 +186,43 @@ class Validator(object):
             raise ValidationFailed(
                 msg, self._limits_conf.max_messages_per_page)
 
+    def message_deletion(self, ids=None, pop=None):
+        """Restrictions involving deletion of messages.
+
+        :param ids: message ids passed in by the delete request
+        :param pop: count of messages to be POPped
+        :raises: ValidationFailed if,
+                 pop AND id params are present together
+                 neither pop or id params are present
+                 message count to be popped > maximum allowed
+        """
+
+        if pop is not None and ids is not None:
+            msg = _(u'pop and id params cannot be present together in the '
+                    'delete request.')
+
+            raise ValidationFailed(msg)
+
+        if pop is None and ids is None:
+            msg = _(u'The request should have either "ids" or "pop" '
+                    'parameter in the request, to be able to delete.')
+
+            raise ValidationFailed(msg)
+
+        pop_uplimit = self._limits_conf.max_messages_per_claim_or_pop
+        if pop is not None and not (0 < pop <= pop_uplimit):
+            msg = _(u'Pop value must be at least 1 and may not '
+                    'be greater than {0}.')
+
+            raise ValidationFailed(msg, pop_uplimit)
+
+        delete_uplimit = self._limits_conf.max_messages_per_page
+        if ids is not None and not (0 < len(ids) <= delete_uplimit):
+            msg = _(u'ids parameter should have at least 1 and not '
+                    'greater than {0} values.')
+
+            raise ValidationFailed(msg, delete_uplimit)
+
     def claim_creation(self, metadata, limit=None):
         """Restrictions on the claim parameters upon creation.
 
@@ -192,13 +234,13 @@ class Validator(object):
 
         self.claim_updating(metadata)
 
-        uplimit = self._limits_conf.max_messages_per_claim
+        uplimit = self._limits_conf.max_messages_per_claim_or_pop
         if limit is not None and not (0 < limit <= uplimit):
             msg = _(u'Limit must be at least 1 and may not '
                     'be greater than {0}.')
 
             raise ValidationFailed(
-                msg, self._limits_conf.max_messages_per_claim)
+                msg, self._limits_conf.max_messages_per_claim_or_pop)
 
         grace = metadata['grace']
 

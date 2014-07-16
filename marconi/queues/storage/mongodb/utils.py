@@ -26,7 +26,7 @@ from bson import objectid
 from bson import tz_util
 from pymongo import errors
 
-from marconi.openstack.common.gettextutils import _
+from marconi.i18n import _
 import marconi.openstack.common.log as logging
 from marconi.openstack.common import timeutils
 from marconi.queues.storage import errors as storage_errors
@@ -122,6 +122,7 @@ def to_oid(obj):
 
 def oid_ts(oid):
     """Converts an ObjectId to a UNIX timestamp.
+
     :raises: TypeError if oid isn't an ObjectId
     """
     try:
@@ -237,7 +238,7 @@ def get_partition(num_partitions, queue, project=None):
     # NOTE(kgriffs): For small numbers of partitions, crc32 will
     # provide a uniform distribution. This was verified experimentally
     # with up to 100 partitions.
-    return binascii.crc32(name) % num_partitions
+    return binascii.crc32(name.encode('utf-8')) % num_partitions
 
 
 def raises_conn_error(func):
@@ -279,6 +280,7 @@ def retries_on_autoreconnect(func):
         max_attemps = self.driver.mongodb_conf.max_reconnect_attempts
         sleep_sec = self.driver.mongodb_conf.reconnect_sleep
 
+        last_ex = None
         for attempt in range(max_attemps):
             try:
                 return func(self, *args, **kwargs)
@@ -288,12 +290,13 @@ def retries_on_autoreconnect(func):
                 LOG.warn(_(u'Caught AutoReconnect, retrying the '
                            'call to {0}').format(func))
 
+                last_ex = ex
                 time.sleep(sleep_sec * (2 ** attempt))
         else:
             LOG.error(_(u'Caught AutoReconnect, maximum attempts '
                         'to {0} exceeded.').format(func))
 
-            raise ex
+            raise last_ex
 
     return wrapper
 
@@ -317,3 +320,6 @@ class HookedCursor(object):
     def next(self):
         item = next(self.cursor)
         return self.denormalizer(item)
+
+    def __next__(self):
+        return self.next()

@@ -35,10 +35,10 @@ class ClaimController(storage.Claim):
                             sa.and_(
                                 tables.Messages.c.ttl >
                                 utils.get_age(tables.Messages.c.created),
-                                #tables.Messages.c.ttl >
-                                #utils.get_age(tables.Claims.c.created),
-                                tables.Messages.c.cid == cid
-                            ))
+                                # tables.Messages.c.ttl >
+                                # utils.get_age(tables.Claims.c.created),
+                                tables.Messages.c.cid == cid))
+
         records = trans.execute(sel)
 
         for id, body, ttl, created in records:
@@ -46,7 +46,7 @@ class ClaimController(storage.Claim):
                 'id': utils.msgid_encode(int(id)),
                 'ttl': ttl,
                 'age': (timeutils.utcnow() - created).seconds,
-                'body': body,
+                'body': utils.json_decode(body),
             }
 
     def get(self, queue, claim_id, project=None):
@@ -141,8 +141,9 @@ class ClaimController(storage.Claim):
             update = tables.Claims.update().where(sa.and_(
                 tables.Claims.c.ttl > age,
                 tables.Claims.c.id == cid,
-                tables.Claims.c.id == qid)).\
-                values(ttl=metadata['ttl'])
+                tables.Claims.c.id == qid))
+
+            update = update.values(ttl=metadata['ttl'])
 
             res = trans.execute(update)
             if res.rowcount != 1:

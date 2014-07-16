@@ -14,11 +14,11 @@
 
 from falcon import testing as ftest
 
+from marconi.openstack.common import jsonutils
 from marconi.queues import bootstrap
+from marconi.queues.transport import validation
 from marconi.queues.transport.wsgi import driver
 from marconi import tests as testing
-
-from marconi.queues.transport import validation
 
 
 class TestBase(testing.TestBase):
@@ -47,8 +47,8 @@ class TestBase(testing.TestBase):
         self.srmock = ftest.StartResponseMock()
 
     def tearDown(self):
-        if self.conf.sharding:
-            self.boot.control.shards_controller.drop_all()
+        if self.conf.pooling:
+            self.boot.control.pools_controller.drop_all()
             self.boot.control.catalogue_controller.drop_all()
         super(TestBase, self).tearDown()
 
@@ -106,3 +106,55 @@ class TestBase(testing.TestBase):
 
 class TestBaseFaulty(TestBase):
     """This test ensures we aren't letting any exceptions go unhandled."""
+
+
+class V1Base(TestBase):
+    """Base class for V1 API Tests.
+
+    Should contain methods specific to V1 of the API
+    """
+    pass
+
+
+class V1BaseFaulty(TestBaseFaulty):
+    """Base class for V1 API Faulty Tests.
+
+    Should contain methods specific to V1 exception testing
+    """
+    pass
+
+
+class V1_1Base(TestBase):
+    """Base class for V1.1 API Tests.
+
+    Should contain methods specific to V1.1 of the API
+    """
+
+    def _empty_message_list(self, body):
+        self.assertEqual(jsonutils.loads(body[0])['messages'], [])
+
+    def simulate_request(self, path, project_id=None, **kwargs):
+        """Simulate a request.
+
+        Simulates a WSGI request to the API for testing.
+
+        :param path: Request path for the desired resource
+        :param kwargs: Same as falcon.testing.create_environ()
+
+        :returns: standard WSGI iterable response
+        """
+        if project_id is not None:
+            headers = dict(kwargs['headers']) if 'headers' in kwargs else {}
+            headers['X-Project-ID'] = project_id
+            kwargs['headers'] = headers
+
+        return self.app(ftest.create_environ(path=path, **kwargs),
+                        self.srmock)
+
+
+class V1_1BaseFaulty(TestBaseFaulty):
+    """Base class for V1.1 API Faulty Tests.
+
+    Should contain methods specific to V1.1 exception testing
+    """
+    pass

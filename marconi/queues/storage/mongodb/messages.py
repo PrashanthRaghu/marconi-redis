@@ -22,13 +22,14 @@ Field Mappings:
 """
 
 import datetime
+import itertools
 import time
 
 from bson import objectid
 import pymongo.errors
 import pymongo.read_preferences
 
-from marconi.openstack.common.gettextutils import _
+from marconi.i18n import _
 import marconi.openstack.common.log as logging
 from marconi.openstack.common import timeutils
 from marconi.queues import storage
@@ -148,9 +149,9 @@ class MessageController(storage.Message):
         for collection in self._collections:
             self._ensure_indexes(collection)
 
-    #-----------------------------------------------------------------------
+    # ----------------------------------------------------------------------
     # Helpers
-    #-----------------------------------------------------------------------
+    # ----------------------------------------------------------------------
 
     def _ensure_indexes(self, collection):
         """Ensures that all indexes are created."""
@@ -296,9 +297,9 @@ class MessageController(storage.Message):
         # ensure the most performant one is chosen.
         return cursor.hint(ACTIVE_INDEX_FIELDS)
 
-    #-----------------------------------------------------------------------
+    # ----------------------------------------------------------------------
     # "Friends" interface
-    #-----------------------------------------------------------------------
+    # ----------------------------------------------------------------------
 
     def _count(self, queue_name, project=None, include_claimed=False):
         """Return total number of messages in a queue.
@@ -358,8 +359,7 @@ class MessageController(storage.Message):
         collection = self._collection(queue_name, project)
         msgs = collection.find(query, sort=[('k', 1)],
                                read_preference=preference).hint(
-                                   CLAIMED_INDEX_FIELDS
-                               )
+                                   CLAIMED_INDEX_FIELDS)
 
         if limit is not None:
             msgs = msgs.limit(limit)
@@ -392,9 +392,9 @@ class MessageController(storage.Message):
                           {'$set': {'c': {'id': None, 'e': now}}},
                           upsert=False, multi=True)
 
-    #-----------------------------------------------------------------------
+    # ----------------------------------------------------------------------
     # Public interface
-    #-----------------------------------------------------------------------
+    # ----------------------------------------------------------------------
 
     def list(self, queue_name, project=None, marker=None,
              limit=storage.DEFAULT_MESSAGES_PER_PAGE,
@@ -407,7 +407,7 @@ class MessageController(storage.Message):
                 yield iter([])
 
         messages = self._list(queue_name, project=project, marker=marker,
-                              client_uuid=client_uuid,  echo=echo,
+                              client_uuid=client_uuid, echo=echo,
                               include_claimed=include_claimed, limit=limit)
 
         marker_id = {}
@@ -573,7 +573,7 @@ class MessageController(storage.Message):
                                       {'$set': {'tx': None}},
                                       upsert=False, multi=True)
 
-                return map(str, ids)
+                return [str(id_) for id_ in ids]
 
             except pymongo.errors.DuplicateKeyError as ex:
                 # TODO(kgriffs): Record stats of how often retries happen,
@@ -735,6 +735,33 @@ class MessageController(storage.Message):
 
         collection = self._collection(queue_name, project)
         collection.remove(query, w=0)
+
+    @utils.raises_conn_error
+    @utils.retries_on_autoreconnect
+    def pop(self, queue_name, limit, project=None):
+        query = {
+            PROJ_QUEUE: utils.scope_queue_name(queue_name, project),
+        }
+
+        # Only include messages that are not part of
+        # any claim, or are part of an expired claim.
+        now = timeutils.utcnow_ts()
+        query['c.e'] = {'$lte': now}
+
+        collection = self._collection(queue_name, project)
+        fields = {'_id': 1, 't': 1, 'b': 1}
+
+        messages = (collection.find_and_modify(query,
+                                               fields=fields,
+                                               remove=True)
+                    for _ in range(limit))
+
+        messages = itertools.ifilter(None, messages)
+
+        final_messages = [_basic_message(message, now)
+                          for message in messages]
+
+        return final_messages
 
 
 def _basic_message(msg, now):

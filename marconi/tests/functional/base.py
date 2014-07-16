@@ -15,13 +15,15 @@
 # limitations under the License.
 
 import abc
-import jsonschema
 import multiprocessing
 import os
+
+import jsonschema
 import six
 
 from marconi.openstack.common import timeutils
-from marconi.queues.api.v1 import response
+from marconi.queues.api.v1 import response as response_v1
+from marconi.queues.api.v1_1 import response as response_v1_1
 from marconi.queues import bootstrap
 # TODO(flaper87): This is necessary to register,
 # wsgi configs and won't be permanent. It'll be
@@ -48,7 +50,6 @@ class FunctionalTestBase(testing.TestBase):
 
     def setUp(self):
         super(FunctionalTestBase, self).setUp()
-
         # NOTE(flaper87): Config can't be a class
         # attribute because it may be necessary to
         # modify it at runtime which will affect
@@ -62,8 +63,6 @@ class FunctionalTestBase(testing.TestBase):
 
         validator = validation.Validator(self.mconf)
         self.limits = validator._limits_conf
-        self.response = response.ResponseSchema(self.limits)
-
         if _TEST_INTEGRATION:
             # TODO(kgriffs): This code should be replaced to use
             # an external wsgi server instance.
@@ -71,7 +70,6 @@ class FunctionalTestBase(testing.TestBase):
             # NOTE(flaper87): Use running instances.
             if self.cfg.marconi.run_server:
                 if not (self.server and self.server.is_alive()):
-                    # pylint: disable=not-callable
                     self.server = self.server_class()
                     self.server.start(self.mconf)
 
@@ -113,23 +111,9 @@ class FunctionalTestBase(testing.TestBase):
         :param expectedCount: limit value passed in the url (OR) default(10).
         :param actualCount: number of messages returned in the API response.
         """
-        msg = 'More Messages returned than allowed: expected count = {0}' \
-              ', actual count = {1}'.format(expectedCount, actualCount)
+        msg = ('More Messages returned than allowed: expected count = {0}'
+               ', actual count = {1}'.format(expectedCount, actualCount))
         self.assertTrue(actualCount <= expectedCount, msg)
-
-    def assertSchema(self, response, expectedSchemaName):
-        """Compares the json response with the expected schema
-
-        :param response: response json returned by the API.
-        :type response: dict
-        :param expectedSchema: expected schema definition for response.
-        :type expectedSchema: string
-        """
-        try:
-            expectedSchema = self.response.get_schema(expectedSchemaName)
-            jsonschema.validate(response, expectedSchema)
-        except jsonschema.ValidationError as message:
-            assert False, message
 
     def assertQueueStats(self, result_json, claimed):
         """Checks the Queue Stats results
@@ -137,7 +121,7 @@ class FunctionalTestBase(testing.TestBase):
         :param result_json: json response returned for Queue Stats.
         :param claimed: expected number of claimed messages.
         """
-        total = self.limits.max_messages_per_claim
+        total = self.limits.max_messages_per_claim_or_pop
         free = total - claimed
 
         self.assertEqual(result_json['messages']['claimed'], claimed)
@@ -153,6 +137,20 @@ class FunctionalTestBase(testing.TestBase):
             newest_message = result_json['messages']['newest']
             self.verify_message_stats(newest_message)
 
+    def assertSchema(self, response, expectedSchemaName):
+        """Compares the json response with the expected schema
+
+        :param response: response json returned by the API.
+        :type response: dict
+        :param expectedSchema: expected schema definition for response.
+        :type expectedSchema: string
+        """
+        try:
+            expectedSchema = self.response.get_schema(expectedSchemaName)
+            jsonschema.validate(response, expectedSchema)
+        except jsonschema.ValidationError as message:
+            assert False, message
+
     def verify_message_stats(self, message):
         """Verifies the oldest & newest message stats
 
@@ -162,7 +160,7 @@ class FunctionalTestBase(testing.TestBase):
         expected_keys = ['age', 'created', 'href']
 
         response_keys = message.keys()
-        response_keys.sort()
+        response_keys = sorted(response_keys)
         self.assertEqual(response_keys, expected_keys)
 
         # Verify that age has valid values
@@ -188,8 +186,8 @@ class FunctionalTestBase(testing.TestBase):
         # (needed to pass this test on sqlite driver)
         delta = int(delta)
 
-        msg = 'Invalid Time Delta {0}, Created time {1}, Now {2}' \
-              .format(delta, created_time, now)
+        msg = ('Invalid Time Delta {0}, Created time {1}, Now {2}'
+               .format(delta, created_time, now))
         self.assertTrue(0 <= delta <= 6000, msg)
 
 
@@ -275,3 +273,15 @@ class MarconiAdminServer(Server):
         server = bootstrap.Bootstrap(conf)
         conf.admin_mode = False
         return server.run
+
+
+class V1FunctionalTestBase(FunctionalTestBase):
+    def setUp(self):
+        super(V1FunctionalTestBase, self).setUp()
+        self.response = response_v1.ResponseSchema(self.limits)
+
+
+class V1_1FunctionalTestBase(FunctionalTestBase):
+    def setUp(self):
+        super(V1_1FunctionalTestBase, self).setUp()
+        self.response = response_v1_1.ResponseSchema(self.limits)
