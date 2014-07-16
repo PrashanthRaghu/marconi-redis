@@ -11,38 +11,48 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import datetime
+import functools
+import time
+import uuid
+
 import redis
 import six
-import functools
-import uuid
-import time
-from marconi.queues.storage import errors
-from marconi.openstack.common import timeutils
+
+from marconi.openstack.common.gettextutils import _
 from marconi.openstack.common import log as logging
+from marconi.queues.storage import errors
 
 LOG = logging.getLogger(__name__)
 
+
 def is_metadata_empty(metadata):
-    """
+    """Empty metadata check.
+
         Check if the metadata for a queue is empty.
-        Empty metadata is represented as '{}'
+        Empty metadata is represented as '{}'.
     """
-    return metadata is '{}'
+    return metadata == '{}'
+
 
 def descope_queue_name(scoped_name):
-    """
-        Returns the queue name from the scoped name
-        which is of the form project-id_queue-name
+    """Descope Queue name with '.'.
+
+       Returns the queue name from the scoped name
+       which is of the form project-id.queue-name
     """
     return scoped_name.split('.')[1]
 
+
 def descope_from_catalogue(scoped_name):
+    """Descope catalogue name with '.'.
+
+        Returns the catalogue name from the scoped name
+        which is of the form project-id.queue-name
     """
-        Returns the queue name from the scoped name
-        which is of the form project-id_queue-name
-    """
-    project, queue = scoped_name.split[:1]
+    project, queue = scoped_name.split('.')[:1]
     return (project, queue)
+
 
 def normalize_none_str(string_or_none):
     """Returns '' IFF given value is None, passthrough otherwise.
@@ -50,11 +60,13 @@ def normalize_none_str(string_or_none):
     This function normalizes None to the empty string to facilitate
     string concatenation when a variable could be None.
     """
-    #Note(prashanthr_) : Try to reuse this utility. Violates DRY
+    # Note(prashanthr_) : Try to reuse this utility. Violates DRY
     return '' if string_or_none is None else string_or_none
+
 
 def generate_uuid():
     return uuid.uuid4().hex
+
 
 def scope_queue_name(queue=None, project=None):
     """Returns a scoped name for a queue based on project and queue.
@@ -68,7 +80,7 @@ def scope_queue_name(queue=None, project=None):
         '{project}/' if ONLY project is given, '.{queue}' if ONLY
         queue is given, and '.' if neither are given.
     """
-     #Note(prashanthr_) : Try to reuse this utility. Violates DRY
+    # Note(prashanthr_) : Try to reuse this utility. Violates DRY
 
     # NOTE(kgriffs): Concatenation is faster than format, and
     # put project first since it is guaranteed to be unique.
@@ -76,26 +88,28 @@ def scope_queue_name(queue=None, project=None):
 
 # Generate aliases for similar functionality from the claims
 # controller.
-scope_shard_catalogue = scope_claim_messages = scope_queue_name
+scope_pool_catalogue = scope_claim_messages = scope_queue_name
 
 
 def scope_messages_set(queue=None, project=None, message_suffix=''):
-    """
+    """Scope messages set with '.'
+
         Returns a scoped name for the list of messages in the form
         project-id_queue-name_suffix
     """
-    return normalize_none_str(project) + '.' + normalize_none_str(queue) \
-        + '.'+ message_suffix
+    return normalize_none_str(project) + '.' + normalize_none_str(
+        queue) + '.'+message_suffix
 
 # Generate aliases for similar functionality from the claims
 # and catalogue controllers.
 scope_queue_catalogue = scope_claims_set = scope_messages_set
 
+
 def raises_conn_error(func):
     """Handles the Redis ConnectionFailure error.
 
-    This decorator catches Redis's ConnectionError
-    and raises Marconi's ConnectionError instead.
+        This decorator catches Redis's ConnectionError
+        and raises Marconi's ConnectionError instead.
     """
     # Note(prashanthr_) : Try to reuse this utility. Violates DRY
     # Can pass exception type into the decorator and create a
@@ -138,24 +152,27 @@ def retries_on_autoreconnect(func):
 
         for attempt in range(max_attemps):
             try:
+                self.init_connection()
                 return func(self, *args, **kwargs)
                 break
 
             except redis.exceptions.ConnectionError as ex:
-                LOG.warn((u'Caught AutoReconnect, retrying the '
+                LOG.warn(_(u'Caught AutoReconnect, retrying the '
                            'call to {0}').format(func))
 
                 time.sleep(sleep_sec * (2 ** attempt))
         else:
-            LOG.error((u'Caught AutoReconnect, maximum attempts '
+            LOG.error(_(u'Caught AutoReconnect, maximum attempts '
                         'to {0} exceeded.').format(func))
 
             raise ex
 
     return wrapper
 
+
 def reset_pipeline(func):
-    """
+    """Reset pipeline.
+
         Methods using pipeline need to reset the pipeline
         after usage.
     """
@@ -167,8 +184,9 @@ def reset_pipeline(func):
 
     return wrapper
 
+
 def basic_message(msg, now):
-    #Note(prashanthr_): DRY.
+    # Note(prashanthr_): DRY.
     oid = msg['id']
     age = now - int(msg['c.e'])
 
@@ -177,47 +195,62 @@ def basic_message(msg, now):
         'age': int(age),
         'ttl': msg['t'],
         'body': msg['b'],
+        'created': msg['e']
     }
 
+
 def msg_claimed_filter(message, now):
-    """
-        This utility verifies in the current message
+    """This utility verifies in the current message
+
         has been claimed.
+
         Used with message pagination while returning
+
         claimed messages.
     """
-    return message['c'] != 'None' and \
-        int(message['c.e']) >= now
+    return message['c'] != 'None' and int(message['c.e']) >= now
+
 
 def msg_echo_filter(message, client_uuid):
-    """
-        This utility verifies in the current message
+    """This utility verifies in the current message
+
         has the same client_uuid.
+
         Used with message pagination while returning
+
         claimed messages.
+
     """
     return message['u'] is str(client_uuid)
 
+
 def get_hostport(uri):
-    """
-        This utility fetches the host and port
-        from the shard uri provided.
+    """This utility fetches the host and port
+
+        from the pools uri provided.
+
         NOTE(prashanthr): Check up with
+
         sanitization of input here.
     """
     netloc = six.moves.urllib.parse.urlparse(uri).netloc
     host, port = netloc.split(":")
     return (host, int(port))
 
+
+def get_timestamp(time):
+    d = datetime.datetime.strptime(time)
+    epoch = datetime.datetime(1970, 1, 1)
+    return (d - epoch).total_seconds()
+
+
 def stat_message(message, now):
     """Creates a stat document from the given message, relative to now."""
-    created = int(message['ttl'])
-    age = now - created
 
     return {
         'id': message['id'],
-        'age': age,
-        'created': timeutils.iso8601_from_timestamp(created)
+        'age': message['age'],
+        'created': message['created']
     }
 
 

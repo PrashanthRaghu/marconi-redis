@@ -15,11 +15,13 @@
 import collections
 import datetime
 
+import six
+
 from marconi.openstack.common import timeutils
 from marconi.queues import storage
 from marconi.queues.storage import errors
 from marconi.queues.storage.redis import utils
-import six
+
 
 QUEUE_MESSAGES_LIST_SUFFIX = 'messages'
 
@@ -34,7 +36,7 @@ class MessageController(storage.Message):
     Messages list ( Redis Sorted Set ) contains message ids
     sorted by timestamp.
 
-    scope: <project-id_q-name>
+    scope: <project-id.q-name>
 
         Name                Field
         -------------------------
@@ -54,6 +56,7 @@ class MessageController(storage.Message):
 
     def init_connection(self):
         """Will be used during reconnection attempts.
+
         """
         self._client = self.driver.connection
 
@@ -66,17 +69,21 @@ class MessageController(storage.Message):
                          limit=limit)
 
     def _get_count(self, messages_set_id):
-        # Return the number of messages in a queue scoped by
-        # queue and project.
+        """Get num messages in a Queue.
+
+           Return the number of messages in a queue scoped by
+           queue and project.
+        """
         return self._client.zcard(messages_set_id)
 
     @utils.raises_conn_error
     @utils.retries_on_autoreconnect
     @utils.reset_pipeline
     def _delete_queue_messages(self, queue, project):
-        # Method to remove all the messages belonging to an
-        # individual queue. Will be referenced from the
-        # QueueController.
+        """Method to remove all the messages belonging to an individual queue.
+
+           Will be referenced from the QueueController.
+        """
         client = self._client
         pipe = self._pipeline
         messages_set_id = utils.scope_messages_set(queue, project,
@@ -90,26 +97,28 @@ class MessageController(storage.Message):
         pipe.execute()
 
     def _exists(self, queue, project, key):
-        # Helper function which checks if a particular message_id
-        # exists in the sorted set of the queues message ids.
-        # Note(prashanthr_): Operation of the order of O(n)
+        """Check if message exists in the Queue.
 
+            Helper function which checks if a particular message_id
+            exists in the sorted set of the queues message ids.
+            Note(prashanthr_): Operation of the order of O(n)
+        """
         messages_set_id = utils.scope_messages_set(queue, project,
                                                    QUEUE_MESSAGES_LIST_SUFFIX)
 
         return self._client.zrank(messages_set_id, key) is not None
 
     def _get_first_message_id(self, queue, project, sort):
-        # Helper function to get the first message in the queue
-        # sort > 0 get from the left else from the right.
+        """Fetch head/tail of the Queue.
 
+           Helper function to get the first message in the queue
+           sort > 0 get from the left else from the right.
+        """
         messages_set_id = utils.scope_messages_set(queue, project,
                                                    QUEUE_MESSAGES_LIST_SUFFIX)
 
-        if sort > 0:
-            return self._client.zrange(messages_set_id, 0, 0)
-
-        return self._client.zrevrange(messages_set_id, 0, 0)
+        sorter = self._client.zrange if sort > 0 else self._client.zrevrange
+        return sorter(messages_set_id, 0, 0)
 
     def _get(self, message_id):
         return self._client.hgetall(message_id)
@@ -134,7 +143,7 @@ class MessageController(storage.Message):
                                                    QUEUE_MESSAGES_LIST_SUFFIX)
         client = self._client
         start = client.zrank(messages_set_id, marker) or 0
-        # In a sharded context, the default values are not being set.
+        # In a pooled environment, the default values are not being set.
         limit = limit or storage.DEFAULT_MESSAGES_PER_CLAIM
         message_ids = client.zrange(messages_set_id, start, start+limit)
         filters = collections.defaultdict(dict)
@@ -153,9 +162,11 @@ class MessageController(storage.Message):
         marker = {}
 
         def _it(message_ids, filters={}):
-        # The function accepts a list of filters
-        # to be filtered before the the message
-        # can be included as a part of the reply.
+            """Create a filtered iterator of messages.
+
+                The function accepts a list of filters to be filtered
+                before the the message can be included as a part of the reply.
+            """
             now = timeutils.utcnow_ts()
 
             for message_id in message_ids:
@@ -199,8 +210,8 @@ class MessageController(storage.Message):
     @utils.raises_conn_error
     @utils.retries_on_autoreconnect
     def bulk_get(self, queue, message_ids, project=None):
-        # TODO(prashanthr_): Pipeline is not used here as atomic guarentee
-        # is not required.but can be used for performance.
+        # Note(prashanthr_): Pipeline is not used here as atomic guarantee
+        # is not required, but can be used for performance.
         client = self._client
         if not self._queue_controller.exists(queue, project):
                 raise errors.QueueDoesNotExist(queue,
@@ -263,7 +274,7 @@ class MessageController(storage.Message):
     def delete(self, queue, message_id, project=None, claim=None):
         messages_set_id = utils.scope_messages_set(queue, project,
                                                    QUEUE_MESSAGES_LIST_SUFFIX)
-
+        pipe = self._pipeline
         if not self._queue_controller.exists(queue, project):
             raise errors.QueueDoesNotExist(queue,
                                            project)
@@ -286,9 +297,7 @@ class MessageController(storage.Message):
             if msg_claim != claim:
                 raise errors.MessageIsClaimedBy(message_id, msg_claim)
 
-        self._pipeline.delete(message_id).\
-            zrem(messages_set_id, message_id).\
-            execute()
+        pipe.delete(message_id).zrem(messages_set_id, message_id).execute()
 
     @utils.raises_conn_error
     @utils.retries_on_autoreconnect

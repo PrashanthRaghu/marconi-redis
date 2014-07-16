@@ -56,6 +56,7 @@ class QueueController(storage.Queue):
 
     def init_connection(self):
         """Will be used during reconnection attempts.
+
         """
         self._client = self.driver.connection
 
@@ -93,8 +94,10 @@ class QueueController(storage.Queue):
         self._init_pipeline()
 
     def _get_queue_info(self, q_id, field, transform=str):
-        """Method to retrieve a particular field from
-            the queue information.
+        """Get a field from Queue Info.
+
+           Method to retrieve a particular field from
+           the queue information.
         """
         return transform(self._client.hgetall(q_id)[field])
 
@@ -135,7 +138,7 @@ class QueueController(storage.Queue):
     @utils.raises_conn_error
     @utils.reset_pipeline
     def create(self, name, project=None):
-        #Note (prashanthr_): Implement as a lua script.
+        # Note(prashanthr_): Implement as a lua script.
         q_id = utils.scope_queue_name(name, project)
         qset_id = utils.scope_queue_name(QUEUES_SET_STORE_NAME, project)
 
@@ -152,19 +155,18 @@ class QueueController(storage.Queue):
             't': timeutils.utcnow_ts()
         }
 
-        pipe.zadd(qset_id, 1, q_id)\
-            .hmset(q_id, q_info)
+        pipe.zadd(qset_id, 1, q_id).hmset(q_id, q_info)
 
         return all(map(bool, pipe.execute()))
 
     @utils.raises_conn_error
     @utils.retries_on_autoreconnect
     def exists(self, name, project=None):
-        # Note (prashanthr_): try to fit in caching if possible.
+        # Note(prashanthr_): try to fit in caching if possible.
         q_id = utils.scope_queue_name(name, project)
         qset_id = utils.scope_queue_name(QUEUES_SET_STORE_NAME, project)
 
-        return not self._client.zrank(qset_id, q_id) is None
+        return self._client.zrank(qset_id, q_id) is not None
 
     @utils.raises_conn_error
     @utils.retries_on_autoreconnect
@@ -190,7 +192,7 @@ class QueueController(storage.Queue):
     @utils.retries_on_autoreconnect
     @utils.reset_pipeline
     def delete(self, name, project=None):
-        # Pipelining is used to ensure no race conditions
+        # Note(prashanthr_): Pipelining is used to ensure no race conditions
         # occur.
         if not self.exists(name, project):
             raise errors.QueueDoesNotExist(name, project)
@@ -229,7 +231,7 @@ class QueueController(storage.Queue):
             newest = msg_ctrl.first(name, project, 1)
             oldest = msg_ctrl.first(name, project, -1)
         except errors.QueueIsEmpty:
-            raise
+            pass
         else:
             message_stats['newest'] = utils.stat_message(newest, now)
             message_stats['oldest'] = utils.stat_message(oldest, now)

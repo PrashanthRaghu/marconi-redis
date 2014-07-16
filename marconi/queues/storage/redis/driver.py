@@ -12,21 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import redis
+
 from marconi.common import decorators
 from marconi.openstack.common import log as logging
 from marconi.queues import storage
 from marconi.queues.storage.redis import controllers
 from marconi.queues.storage.redis import options
 from marconi.queues.storage.redis import utils
-import redis
+
 
 LOG = logging.getLogger(__name__)
 
 
 def _get_redis_client(conf):
-    # NOTE:prashanthr_ : Check if SSL support is required.
-    if conf.useSocketPath:
-        return redis.StrictRedis(unix_socket_path=conf.sockPath)
+    # NOTE(prashanthr_): Check if SSL support is required.
+    if conf.use_socket_path:
+        return redis.StrictRedis(unix_socket_path=conf.sock_path)
     else:
         host, port = utils.get_hostport(conf['uri'])
         return redis.StrictRedis(host=host, port=port, db=conf.database)
@@ -87,8 +89,8 @@ class ControlDriver(storage.ControlDriverBase):
         return _get_redis_client(self.redis_conf)
 
     @property
-    def shards_controller(self):
-        return controllers.ShardsController(self)
+    def pools_controller(self):
+        return controllers.PoolsController(self)
 
     @property
     def catalogue_controller(self):

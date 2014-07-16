@@ -17,14 +17,17 @@ from oslo.config import cfg
 
 
 REDIS_OPTIONS = (
-    cfg.StrOpt('uri', default="redis://127.0.0.1:6379", help='Redis Server URI.'),
+    cfg.StrOpt('uri', default="redis://127.0.0.1:6379",
+               help='Redis Server URI.'),
 
-    cfg.IntOpt('database', default=0, help='Database number'),
+    cfg.IntOpt('database', default=0,
+               help=('Database number serves to create '
+                     'a separate key space indexed by number.')),
 
-    cfg.BoolOpt('useSocketPath', default=False,
-               help='Use the Unix socket path between client and Redis.'),
+    cfg.BoolOpt('use_socket_path', default=False,
+                help='Use the Unix socket path between client and Redis.'),
 
-    cfg.StrOpt('sockPath' , default='/tmp/redis.sock',
+    cfg.StrOpt('sock_path', default='/tmp/redis.sock',
                help='Unix socket path defined by redis.'),
 
     cfg.IntOpt('max_attempts', default=1000,
@@ -54,6 +57,7 @@ REDIS_OPTIONS = (
 )
 
 REDIS_GROUP = 'drivers:storage:redis'
+
 
 def _config_options():
     return [(REDIS_GROUP, REDIS_OPTIONS)]
